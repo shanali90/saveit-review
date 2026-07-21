@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { enrichSavedMetadata } from '@/services/ai';
@@ -59,6 +60,65 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
     settingsRef.current = settings;
   }, [settings]);
 
+  const commitItems = useCallback((nextItems: SavedItem[]) => {
+    const sorted = sortItems(nextItems);
+    itemsRef.current = sorted;
+    setItems(sorted);
+    scheduleReminderNotification(sorted, settingsRef.current).catch((error) => {
+      if (settingsRef.current.notifications_enabled) {
+        const msg = errorMessage(error);
+        if (!msg.includes('org.json.JSONObject')) {
+          pushError(`Daily reminder could not be scheduled: ${msg}`);
+        }
+      }
+    });
+    return sorted;
+  }, []);
+
+  const syncOfflineQueue = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      // 1. Process deletes
+      const deletesStr = await AsyncStorage.getItem('cache:pending_deletes');
+      if (deletesStr) {
+        const deletes: string[] = JSON.parse(deletesStr);
+        if (deletes.length > 0) {
+          await Promise.all(deletes.map((id) => deleteItemFromSupabase(id).catch(() => {})));
+          await AsyncStorage.removeItem('cache:pending_deletes');
+        }
+      }
+
+      // 2. Process edits/inserts
+      const queuedItems = itemsRef.current.filter((item) => item.sync_status === 'queued');
+      if (queuedItems.length > 0) {
+        // Change status to synced for the upload
+        const itemsToUpload = queuedItems.map(item => ({ ...item, sync_status: 'synced' as const }));
+        await upsertItemsToSupabase(itemsToUpload);
+        
+        // If successful, update local state
+        const nextItems = itemsRef.current.map(item => {
+          if (item.sync_status === 'queued') {
+            return { ...item, sync_status: 'synced' as const };
+          }
+          return item;
+        });
+        commitItems(nextItems);
+        await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
+      }
+    } catch (err) {
+      // Ignore, will retry later
+    }
+  }, [isAuthenticated, commitItems]);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      if (state.isConnected && isReady) {
+        syncOfflineQueue();
+      }
+    });
+    return () => unsubscribe();
+  }, [syncOfflineQueue, isReady]);
+
   useEffect(() => {
     let mounted = true;
     async function hydrate() {
@@ -94,6 +154,7 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
       }
 
       try {
+        await syncOfflineQueue();
         const [nextItems, nextSettings] = isAuthenticated
           ? await hydrateFromSupabase()
           : await hydrateDemoStorage();
@@ -131,21 +192,6 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
 
   const unwatchedCount = useMemo(() => items.filter((item) => !item.is_done).length, [items]);
   const doneCount = useMemo(() => items.filter((item) => item.is_done).length, [items]);
-
-  const commitItems = useCallback((nextItems: SavedItem[]) => {
-    const sorted = sortItems(nextItems);
-    itemsRef.current = sorted;
-    setItems(sorted);
-    scheduleReminderNotification(sorted, settingsRef.current).catch((error) => {
-      if (settingsRef.current.notifications_enabled) {
-        const msg = errorMessage(error);
-        if (!msg.includes('org.json.JSONObject')) {
-          pushError(`Daily reminder could not be scheduled: ${msg}`);
-        }
-      }
-    });
-    return sorted;
-  }, []);
 
   const updateSettings = useCallback(async (patch: Partial<UserSettings>) => {
     const nextSettings = { ...settingsRef.current, ...patch };
@@ -196,9 +242,23 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
       const normalizedNextItems = nextItems.map((item) => nextById.get(item.id) ?? item);
 
       if (isAuthenticated) {
-        await upsertItemsToSupabase(normalizedChangedItems);
-        commitItems(normalizedNextItems);
-        await AsyncStorage.setItem('cache:saved_items', JSON.stringify(normalizedNextItems));
+        try {
+          await upsertItemsToSupabase(normalizedChangedItems);
+          commitItems(normalizedNextItems);
+          await AsyncStorage.setItem('cache:saved_items', JSON.stringify(normalizedNextItems));
+        } catch (error) {
+          // Offline handling: Mark as queued
+          const queuedChangedItems = changedItems.map((item) => ({
+            ...item,
+            user_id: authUserId ?? item.user_id,
+            sync_status: 'queued' as const
+          }));
+          const queuedNextById = new Map(queuedChangedItems.map((item) => [item.id, item]));
+          const queuedNextItems = nextItems.map((item) => queuedNextById.get(item.id) ?? item);
+          
+          commitItems(queuedNextItems);
+          await AsyncStorage.setItem('cache:saved_items', JSON.stringify(queuedNextItems));
+        }
         return;
       }
 
@@ -419,7 +479,17 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
           await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
           await cancelItemReminder(itemId);
         } catch {
-          pushError("Couldn't save — check your connection.");
+          // Offline handling: queue delete
+          const nextItems = itemsRef.current.filter((item) => item.id !== itemId);
+          commitItems(nextItems);
+          await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
+          
+          const deletesStr = await AsyncStorage.getItem('cache:pending_deletes');
+          const deletes = deletesStr ? JSON.parse(deletesStr) : [];
+          deletes.push(itemId);
+          await AsyncStorage.setItem('cache:pending_deletes', JSON.stringify(deletes));
+          
+          await cancelItemReminder(itemId);
         }
         return;
       }
@@ -513,7 +583,17 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
         await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
         await Promise.all(doneItemIds.map(cancelItemReminder));
       } catch {
-        pushError("Couldn't save — check your connection.");
+        // Offline handling: queue deletes
+        const nextItems = itemsRef.current.filter((item) => !item.is_done);
+        commitItems(nextItems);
+        await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
+        
+        const deletesStr = await AsyncStorage.getItem('cache:pending_deletes');
+        const deletes = deletesStr ? JSON.parse(deletesStr) : [];
+        deletes.push(...doneItemIds);
+        await AsyncStorage.setItem('cache:pending_deletes', JSON.stringify(deletes));
+        
+        await Promise.all(doneItemIds.map(cancelItemReminder));
       }
       return;
     }
@@ -574,6 +654,7 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
     if (!isAuthenticated) return;
     setIsSyncing(true);
     try {
+      await syncOfflineQueue();
       const [remoteItems, remoteSettings] = await Promise.all([loadItemsFromSupabase(), loadSettingsFromSupabase()]);
       const nextSettings = { ...defaultSettings, ...(remoteSettings ?? {}) };
       const normalizedItems = remoteItems.map(normalizeStoredItem);
