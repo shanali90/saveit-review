@@ -1,0 +1,7 @@
+<!-- Reference snippet. app.json already declares this for Expo prebuild. -->
+<intent-filter>
+  <action android:name="android.intent.action.SEND" />
+  <category android:name="android.intent.category.DEFAULT" />
+  <data android:mimeType="text/plain" />
+  <data android:mimeType="text/html" />
+</intent-filter>

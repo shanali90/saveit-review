@@ -1,11 +1,12 @@
 import { Feather } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as Linking from 'expo-linking';
-import { useEffect, useRef } from 'react';
-import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import * as Updates from 'expo-updates';
+import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 
 import { colors, radii, shadow, spacing } from '@/constants/theme';
-import { AppRelease, recordUpdatePromptShown } from '@/services/updateChecker';
+import { AppRelease, dismissUpdatePrompt, recordUpdatePromptShown } from '@/services/updateChecker';
 
 type UpdateModalProps = {
   release: AppRelease;
@@ -15,6 +16,31 @@ type UpdateModalProps = {
 export function UpdateModal({ release, onClose }: UpdateModalProps) {
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.92)).current;
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const rippleAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (isUpdating) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(rippleAnim, {
+            toValue: 1,
+            duration: 1200,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(rippleAnim, {
+            toValue: 0,
+            duration: 0,
+            useNativeDriver: true,
+          })
+        ])
+      ).start();
+    } else {
+      rippleAnim.setValue(0);
+    }
+  }, [isUpdating, rippleAnim]);
 
   useEffect(() => {
     // Entrance animation: fade + scale-in
@@ -49,7 +75,7 @@ export function UpdateModal({ release, onClose }: UpdateModalProps) {
     })();
 
     // Record that we showed this prompt to the user
-    recordUpdatePromptShown(release.latest_version_code).catch(() => undefined);
+    recordUpdatePromptShown().catch(() => undefined);
 
     return () => {
       if (sound) {
@@ -59,6 +85,31 @@ export function UpdateModal({ release, onClose }: UpdateModalProps) {
   }, [opacity, scale]);
 
   async function handleUpdate() {
+    if (release.update_type === 'ota') {
+      setIsUpdating(true);
+      setUpdateError(null);
+      try {
+        const check = await Updates.checkForUpdateAsync();
+        if (check.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          // Dismiss only AFTER a successful download — if the OTA fails,
+          // the user should be prompted again on the next app open.
+          await dismissUpdatePrompt(release.latest_version_code);
+          await Updates.reloadAsync();
+        } else {
+          setUpdateError("Update no longer available.");
+          setIsUpdating(false);
+        }
+      } catch (err: any) {
+        setUpdateError("Failed to update: " + (err.message || "Unknown error"));
+        setIsUpdating(false);
+      }
+      return;
+    }
+
+    // Native update: dismiss immediately since we're sending the user
+    // to an external download — we can't track whether they complete it.
+    await dismissUpdatePrompt(release.latest_version_code);
     try {
       await Linking.openURL(release.download_url);
     } catch {
@@ -68,6 +119,7 @@ export function UpdateModal({ release, onClose }: UpdateModalProps) {
   }
 
   async function handleIgnore() {
+    await dismissUpdatePrompt(release.latest_version_code);
     onClose();
   }
 
@@ -85,20 +137,43 @@ export function UpdateModal({ release, onClose }: UpdateModalProps) {
         >
           {/* Icon badge */}
           <View style={styles.iconBadge}>
+            {isUpdating && (
+              <Animated.View style={[
+                StyleSheet.absoluteFill,
+                styles.ripple,
+                {
+                  opacity: rippleAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.6, 0]
+                  }),
+                  transform: [{
+                    scale: rippleAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [1, 2]
+                    })
+                  }]
+                }
+              ]} />
+            )}
             <Feather name="download" size={24} color={colors.primary} />
           </View>
 
           {/* Title */}
-          <Text style={styles.title}>Update Available</Text>
+          <Text style={styles.title}>{isUpdating ? 'Updating...' : 'Update Available'}</Text>
 
           {/* Body */}
           <Text style={styles.body}>
-            A new version of SaveIt is available
-            {release.latest_version_name ? ` (v${release.latest_version_name})` : ''}.
+            {isUpdating
+              ? 'Downloading the latest version. Please wait...'
+              : `A new version of SaveIt is available${release.latest_version_name ? ` (v${release.latest_version_name})` : ''}.`}
           </Text>
 
+          {updateError && (
+            <Text style={styles.errorText}>{updateError}</Text>
+          )}
+
           {/* Release notes */}
-          {release.release_notes ? (
+          {!isUpdating && release.release_notes ? (
             <View style={styles.notesContainer}>
               <Text style={styles.notesLabel}>What's new</Text>
               <Text style={styles.notesText}>{release.release_notes}</Text>
@@ -108,26 +183,35 @@ export function UpdateModal({ release, onClose }: UpdateModalProps) {
           {/* Buttons */}
           <Pressable
             accessibilityRole="button"
+            disabled={isUpdating}
             onPress={handleUpdate}
             style={({ pressed }) => [
               styles.updateButton,
-              pressed && styles.updateButtonPressed,
+              isUpdating && styles.updateButtonDisabled,
+              pressed && !isUpdating && styles.updateButtonPressed,
             ]}
           >
-            <Feather name="external-link" size={17} color={colors.surface} />
-            <Text style={styles.updateButtonText}>Update</Text>
+            {!isUpdating && release.update_type !== 'ota' && (
+              <Feather name="external-link" size={17} color={colors.surface} />
+            )}
+            {isUpdating && <ActivityIndicator size="small" color={colors.surface} style={{ marginRight: 8 }} />}
+            <Text style={styles.updateButtonText}>
+              {isUpdating ? 'Updating...' : (release.update_type === 'ota' ? 'Install Update' : 'Update')}
+            </Text>
           </Pressable>
 
-          <Pressable
-            accessibilityRole="button"
-            onPress={handleIgnore}
-            style={({ pressed }) => [
-              styles.ignoreButton,
-              pressed && styles.ignoreButtonPressed,
-            ]}
-          >
-            <Text style={styles.ignoreButtonText}>Ignore for now</Text>
-          </Pressable>
+          {!isUpdating && (
+            <Pressable
+              accessibilityRole="button"
+              onPress={handleIgnore}
+              style={({ pressed }) => [
+                styles.ignoreButton,
+                pressed && styles.ignoreButtonPressed,
+              ]}
+            >
+              <Text style={styles.ignoreButtonText}>Ignore for now</Text>
+            </Pressable>
+          )}
         </Animated.View>
       </View>
     </Modal>
@@ -230,4 +314,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
+  ripple: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: 26,
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
+    marginTop: spacing.md,
+    textAlign: 'center',
+  },
+  updateButtonDisabled: {
+    opacity: 0.8,
+  }
 });

@@ -124,8 +124,51 @@ export async function runMigrations(): Promise<void> {
 
 export async function getAuthenticatedUserId(): Promise<string | null> {
   if (!supabase) return null;
-  const { data } = await supabase.auth.getUser();
-  return data.user?.id ?? null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.user.id ?? null;
+  } catch {
+    // PRIORITY 2 FIX: If getSession() fails (e.g. token refresh while offline),
+    // attempt to read the cached session directly from AsyncStorage.
+    // This ensures offline reads can still find the user_id for cached data.
+    try {
+      const storageKey = `sb-${supabaseUrl?.replace(/^https?:\/\//, '').split('.')[0]}-auth-token`;
+      const raw = await AsyncStorage.getItem(storageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return parsed?.user?.id ?? parsed?.currentSession?.user?.id ?? null;
+      }
+    } catch {
+      // Fallback also failed
+    }
+    return null;
+  }
+}
+
+/**
+ * Read the persisted Supabase auth user ID directly from AsyncStorage.
+ *
+ * OFFLINE-SAFE: This never makes a network call — it reads the locally
+ * stored auth session that Supabase JS persists via `persistSession: true`.
+ * The user ID is stable across token refreshes (it's the user's UUID, not
+ * the access token), so it's safe to use even if the access token is expired.
+ *
+ * Used by App.tsx's auth initialization to avoid falling back to Demo Mode
+ * when the device is offline and `getSession()` hangs trying to refresh an
+ * expired token.
+ */
+export async function getPersistedUserId(): Promise<string | null> {
+  if (!isSupabaseConfigured || !supabaseUrl) return null;
+  try {
+    const storageKey = `sb-${supabaseUrl.replace(/^https?:\/\//, '').split('.')[0]}-auth-token`;
+    const raw = await AsyncStorage.getItem(storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Supabase JS v2 stores the session object directly; v1 stored it under currentSession.
+    return parsed?.user?.id ?? parsed?.currentSession?.user?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function upsertItemsToSupabase(items: SavedItem[]): Promise<void> {

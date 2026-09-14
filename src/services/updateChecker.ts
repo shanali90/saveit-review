@@ -3,21 +3,17 @@ import * as Application from 'expo-application';
 
 import { isSupabaseConfigured, supabase } from '@/services/supabase';
 
-const PROMPT_STATS_KEY = 'saveit:update_prompt_stats';
-
 export type AppRelease = {
   latest_version_code: number;
   latest_version_name: string;
   download_url: string;
   release_notes: string | null;
+  update_type?: 'ota' | 'native';
 };
 
 /**
  * Check if an update is available by comparing the installed versionCode
  * with the latest_version_code in the app_releases table.
- *
- * Returns the release info if an update is available and hasn't been dismissed,
- * or null if no update is needed / check fails / Supabase isn't configured.
  */
 export async function checkForUpdate(): Promise<AppRelease | null> {
   try {
@@ -28,30 +24,46 @@ export async function checkForUpdate(): Promise<AppRelease | null> {
 
     const { data, error } = await supabase
       .from('app_releases')
-      .select('latest_version_code, latest_version_name, download_url, release_notes')
+      .select('latest_version_code, latest_version_name, download_url, release_notes, update_type')
       .eq('platform', 'android')
       .maybeSingle();
 
     if (error || !data) return null;
 
     const release = data as AppRelease;
-    if (release.latest_version_code <= installedVersionCode) return null;
+    const latestVersion = Number(release.latest_version_code);
 
-    // Check if user has already seen this prompt 2 times today
-    const statsRaw = await AsyncStorage.getItem(PROMPT_STATS_KEY);
-    if (statsRaw !== null) {
-      try {
-        const stats = JSON.parse(statsRaw);
-        const today = new Date().toISOString().split('T')[0];
-        if (stats.date === today && stats.versionCode === release.latest_version_code && stats.count >= 2) {
-          return null;
-        }
-      } catch {
-        // Ignore parse errors
+    // RULE 1: ABSOLUTE GATE. Runs first, before any other logic.
+    // If installed is >= latest, or if latest is somehow not a number, never show.
+    if (isNaN(latestVersion) || latestVersion <= installedVersionCode) {
+      return null;
+    }
+
+    // RULE 3: Explicitly dismissed
+    const dismissedRaw = await AsyncStorage.getItem('update:dismissed_version_code');
+    if (dismissedRaw && Number(dismissedRaw) === latestVersion) {
+      return null;
+    }
+
+    // RULE 2 & 4: Up to 2 times a day
+    const shownDate = await AsyncStorage.getItem('update:shown_date');
+    const shownCountRaw = await AsyncStorage.getItem('update:shown_count_today');
+    const today = new Date().toISOString().split('T')[0];
+
+    if (shownDate === today && shownCountRaw) {
+      const count = parseInt(shownCountRaw, 10);
+      if (!isNaN(count) && count >= 2) {
+        return null;
       }
     }
 
-    return release;
+    const rawType = String(release.update_type ?? '').trim().toLowerCase();
+    const update_type: 'ota' | 'native' = rawType === 'ota' ? 'ota' : 'native';
+
+    return {
+      ...release,
+      update_type,
+    };
   } catch {
     // Fail silently — never block app usage
     return null;
@@ -60,26 +72,35 @@ export async function checkForUpdate(): Promise<AppRelease | null> {
 
 /**
  * Record that the update prompt was shown to the user.
- * Limits the popup to a max of 2 times per day per version.
+ * Increments the daily count for the current date.
  */
-export async function recordUpdatePromptShown(versionCode: number): Promise<void> {
+export async function recordUpdatePromptShown(): Promise<void> {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const statsRaw = await AsyncStorage.getItem(PROMPT_STATS_KEY);
-    let count = 1;
-    if (statsRaw !== null) {
-      try {
-        const stats = JSON.parse(statsRaw);
-        if (stats.date === today && stats.versionCode === versionCode) {
-          count = stats.count + 1;
-        }
-      } catch {
-        // Ignore
-      }
+    const shownDate = await AsyncStorage.getItem('update:shown_date');
+    const shownCountRaw = await AsyncStorage.getItem('update:shown_count_today');
+    
+    let count = 0;
+    if (shownDate === today && shownCountRaw) {
+      count = parseInt(shownCountRaw, 10);
+      if (isNaN(count)) count = 0;
     }
-    await AsyncStorage.setItem(PROMPT_STATS_KEY, JSON.stringify({ date: today, count, versionCode }));
+    
+    await AsyncStorage.setItem('update:shown_date', today);
+    await AsyncStorage.setItem('update:shown_count_today', String(count + 1));
   } catch {
-    // Non-critical preference
+    // Ignore
+  }
+}
+
+/**
+ * Permanently dismiss the update prompt for a specific version.
+ */
+export async function dismissUpdatePrompt(versionCode: number | string): Promise<void> {
+  try {
+    await AsyncStorage.setItem('update:dismissed_version_code', String(versionCode));
+  } catch {
+    // Ignore
   }
 }
 

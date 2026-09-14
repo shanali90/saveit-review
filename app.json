@@ -1,0 +1,91 @@
+{
+  "expo": {
+    "name": "SaveIt",
+    "slug": "saveit",
+    "scheme": "saveit",
+    "version": "1.0.0",
+    "runtimeVersion": "1.0.1",
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "ON_ERROR_RECOVERY",
+      "url": "https://u.expo.dev/3825ebf8-4fba-4a28-b911-f8094b9a7105"
+    },
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#0A0A1A"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "app.saveit.mobile",
+      "infoPlist": {
+        "NSExtensionActivationRule": {
+          "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+          "NSExtensionActivationSupportsText": true
+        }
+      }
+    },
+    "android": {
+      "package": "app.saveit.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A0A1A"
+      },
+      "permissions": [
+        "SYSTEM_ALERT_WINDOW",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_SPECIAL_USE",
+        "POST_NOTIFICATIONS",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
+          "data": [
+            {
+              "scheme": "saveit"
+            }
+          ]
+        }
+      ]
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-notifications",
+      "expo-font",
+      [
+        "expo-share-intent",
+        {
+          "disableAndroid": true,
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsText": true,
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsWebPageWithMaxCount": 1
+          }
+        }
+      ],
+      "./plugins/with-saveit-overlay",
+      "./plugins/with-apk-name"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "3825ebf8-4fba-4a28-b911-f8094b9a7105"
+      }
+    },
+    "owner": "shanali90s-team"
+  }
+}

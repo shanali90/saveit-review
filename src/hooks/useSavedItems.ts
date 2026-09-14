@@ -7,14 +7,19 @@ import { createId } from '@/services/id';
 import {
   cancelAllItemReminders,
   cancelItemReminder,
+  cancelQuickReminder,
   dismissItemNotification,
   scheduleItemReminder,
+  scheduleQuickReminder,
   scheduleReminderNotification
 } from '@/services/notifications';
 import {
   defaultSettings,
   clearDemoData,
+  clearDemoItemsAfterMigration,
   getDemoUserId,
+  readDemoItemsForMigration,
+  readDemoSettingsForMigration,
   readItems,
   readSettings,
   readSharedQueue,
@@ -105,6 +110,14 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
         commitItems(nextItems);
         await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
       }
+
+      // 3. Flush pending settings write
+      const pendingSettingsStr = await AsyncStorage.getItem('cache:pending_settings_write');
+      if (pendingSettingsStr) {
+        const pendingSettings = JSON.parse(pendingSettingsStr) as UserSettings;
+        await saveSettingsToSupabase(pendingSettings);
+        await AsyncStorage.removeItem('cache:pending_settings_write');
+      }
     } catch (err) {
       // Ignore, will retry later
     }
@@ -155,23 +168,111 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
 
       try {
         await syncOfflineQueue();
-        const [nextItems, nextSettings] = isAuthenticated
+        let [nextItems, nextSettings] = isAuthenticated
           ? await hydrateFromSupabase()
           : await hydrateDemoStorage();
 
-        if (isAuthenticated) {
-          await Promise.all([
-            AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems)),
-            AsyncStorage.setItem('cache:user_settings', JSON.stringify(nextSettings))
-          ]);
+        // PRIORITY 0 FIX: Migrate demo items to authenticated account.
+        // When a user signs in with Google after using demo mode, their
+        // locally-stored demo items must be merged into Supabase under
+        // the new authenticated user_id.
+        if (isAuthenticated && authUserId) {
+          try {
+            const demoItems = await readDemoItemsForMigration();
+            if (demoItems.length > 0) {
+              // Re-tag demo items with the authenticated user_id
+              const migratedItems = demoItems.map(item => ({
+                ...normalizeStoredItem(item),
+                user_id: authUserId,
+                sync_status: 'synced' as const
+              }));
+
+              // Merge: server items take precedence by URL to avoid duplicates
+              const existingUrls = new Set(nextItems.map(item => item.url));
+              const uniqueMigrated = migratedItems.filter(item => !existingUrls.has(item.url));
+
+              if (uniqueMigrated.length > 0) {
+                await upsertItemsToSupabase(uniqueMigrated);
+                nextItems = [...uniqueMigrated, ...nextItems];
+              }
+
+              // Also migrate demo settings if user has no server settings yet
+              const demoSettings = await readDemoSettingsForMigration();
+              const hasServerSettings = Object.keys(nextSettings).some(
+                key => key !== 'seen_platforms' && (nextSettings as Record<string, unknown>)[key] !== (defaultSettings as Record<string, unknown>)[key]
+              );
+              if (!hasServerSettings && demoSettings !== defaultSettings) {
+                const mergedSettings = { ...nextSettings, ...demoSettings };
+                await saveSettingsToSupabase(mergedSettings);
+                nextSettings = mergedSettings;
+              }
+
+              // Clear demo data only after successful migration
+              await clearDemoItemsAfterMigration();
+              await logDemoMigration(demoItems.length, uniqueMigrated.length);
+            }
+          } catch {
+            // Migration failed (likely offline) — demo items will stay
+            // in local storage and migration will retry on next hydrate.
+          }
         }
 
-        if (!mounted) return;
+        // PRIORITY 1: If there are pending (unsynced) settings changes,
+        // merge them over the server settings to avoid reverting offline edits.
+        if (isAuthenticated) {
+          try {
+            const pendingStr = await AsyncStorage.getItem('cache:pending_settings_write');
+            if (pendingStr) {
+              const pending = JSON.parse(pendingStr) as Partial<UserSettings>;
+              nextSettings = { ...nextSettings, ...pending };
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        }
 
-        setItems(sortItems(nextItems));
-        setSettings(nextSettings);
-        itemsRef.current = sortItems(nextItems);
-        settingsRef.current = nextSettings;
+        if (isAuthenticated) {
+          // DATA-LOSS GUARD: Before overwriting cache with server data, check
+          // if the server returned dramatically fewer items than we have cached.
+          // If so, the server data is suspicious — keep cache and re-upload.
+          const cachedCount = itemsRef.current.length;
+          if (isSuspiciousDataLoss(cachedCount, nextItems.length)) {
+            await logDataLossWarning(cachedCount, nextItems.length, 'hydrate');
+            // Re-upload cached items to the server instead of overwriting
+            try {
+              await upsertItemsToSupabase(
+                itemsRef.current.map(item => ({ ...item, sync_status: 'synced' as const }))
+              );
+            } catch {
+              // Re-upload failed (offline?), keep cache anyway
+            }
+            // Keep current items/settings, just update settings from server if safe
+            if (mounted) {
+              settingsRef.current = nextSettings;
+              setSettings(nextSettings);
+              await AsyncStorage.setItem('cache:user_settings', JSON.stringify(nextSettings));
+            }
+          } else {
+            await Promise.all([
+              AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems)),
+              AsyncStorage.setItem('cache:user_settings', JSON.stringify(nextSettings))
+            ]);
+
+            if (!mounted) return;
+
+            setItems(sortItems(nextItems));
+            setSettings(nextSettings);
+            itemsRef.current = sortItems(nextItems);
+            settingsRef.current = nextSettings;
+          }
+        } else {
+          if (!mounted) return;
+
+          setItems(sortItems(nextItems));
+          setSettings(nextSettings);
+          itemsRef.current = sortItems(nextItems);
+          settingsRef.current = nextSettings;
+        }
       } catch (err) {
         if (!mounted) return;
         if (isAuthenticated && !hasCache) {
@@ -195,31 +296,42 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
 
   const updateSettings = useCallback(async (patch: Partial<UserSettings>) => {
     const nextSettings = { ...settingsRef.current, ...patch };
-    try {
-      if (isAuthenticated) {
-        await saveSettingsToSupabase(nextSettings);
-        await AsyncStorage.setItem('cache:user_settings', JSON.stringify(nextSettings));
-      } else {
-        await writeSettings(nextSettings);
-      }
 
-      settingsRef.current = nextSettings;
-      setSettings(nextSettings);
-      scheduleReminderNotification(itemsRef.current, nextSettings).catch((error) => {
-        if (nextSettings.notifications_enabled) {
-          const msg = errorMessage(error);
-          if (!msg.includes('org.json.JSONObject')) {
-            pushError(`Daily reminder could not be scheduled: ${msg}`);
-          }
-        }
-      });
-    } catch (err: any) {
-      pushError(
-        isAuthenticated
-          ? "Couldn't save settings — check your connection."
-          : 'Could not save demo settings on this device.'
-      );
+    // OPTIMISTIC UPDATE: Always update local state + cache immediately,
+    // regardless of whether the server write succeeds. This ensures settings
+    // changes take effect right away even when offline.
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+
+    if (isAuthenticated) {
+      // Write to local cache first (survives restarts)
+      await AsyncStorage.setItem('cache:user_settings', JSON.stringify(nextSettings)).catch(() => {});
+
+      try {
+        await saveSettingsToSupabase(nextSettings);
+        // Server write succeeded — clear any pending queue
+        await AsyncStorage.removeItem('cache:pending_settings_write').catch(() => {});
+      } catch (err: any) {
+        // Server write failed (offline) — queue for later sync
+        await AsyncStorage.setItem('cache:pending_settings_write', JSON.stringify(nextSettings)).catch(() => {});
+        // Don't show error for every offline change — the queue will flush on reconnect
+      }
+    } else {
+      try {
+        await writeSettings(nextSettings);
+      } catch {
+        pushError('Could not save demo settings on this device.');
+      }
     }
+
+    scheduleReminderNotification(itemsRef.current, nextSettings).catch((error) => {
+      if (nextSettings.notifications_enabled) {
+        const msg = errorMessage(error);
+        if (!msg.includes('org.json.JSONObject')) {
+          pushError(`Daily reminder could not be scheduled: ${msg}`);
+        }
+      }
+    });
   }, [isAuthenticated]);
 
   const persistDemoItems = useCallback(
@@ -415,6 +527,11 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
         await updateSettings({ seen_platforms: seenPlatforms });
 
         enrichItem(item.id, item.url, item.raw_title, draft.preview).catch(() => undefined);
+
+        // Schedule a one-time quick reminder (~15 min) for this newly saved item.
+        // Fire-and-forget: never blocks the save flow.
+        scheduleQuickReminder(item).catch(() => undefined);
+
         return { status: 'saved', item };
       } catch (err: any) {
         return { status: 'error', message: "Couldn't save — check your connection." };
@@ -444,6 +561,7 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
         // any already-displayed notification for this item from the notification tray.
         // This covers all 3 conditions: no future reminders, cleared from tray, OS-level cancel.
         await cancelItemReminder(itemId);
+        await cancelQuickReminder(itemId);
         await dismissItemNotification(itemId);
       } catch {
         pushError("Couldn't save — check your connection.");
@@ -478,6 +596,7 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
           commitItems(nextItems);
           await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
           await cancelItemReminder(itemId);
+          await cancelQuickReminder(itemId);
         } catch {
           // Offline handling: queue delete
           const nextItems = itemsRef.current.filter((item) => item.id !== itemId);
@@ -490,11 +609,13 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
           await AsyncStorage.setItem('cache:pending_deletes', JSON.stringify(deletes));
           
           await cancelItemReminder(itemId);
+          await cancelQuickReminder(itemId);
         }
         return;
       }
       await persistDemoItems(itemsRef.current.filter((item) => item.id !== itemId));
       await cancelItemReminder(itemId);
+      await cancelQuickReminder(itemId);
     },
     [commitItems, isAuthenticated, persistDemoItems]
   );
@@ -656,22 +777,56 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
     try {
       await syncOfflineQueue();
       const [remoteItems, remoteSettings] = await Promise.all([loadItemsFromSupabase(), loadSettingsFromSupabase()]);
-      const nextSettings = { ...defaultSettings, ...(remoteSettings ?? {}) };
+      let nextSettings = { ...defaultSettings, ...(remoteSettings ?? {}) };
+
+      // OFFLINE SETTINGS GUARD: If there are pending (unsynced) settings changes,
+      // merge them over the server settings to avoid reverting offline edits.
+      // This mirrors the same protection in hydrate().
+      try {
+        const pendingStr = await AsyncStorage.getItem('cache:pending_settings_write');
+        if (pendingStr) {
+          const pending = JSON.parse(pendingStr) as Partial<UserSettings>;
+          nextSettings = { ...nextSettings, ...pending };
+        }
+      } catch {
+        // Ignore parse errors
+      }
       const normalizedItems = remoteItems.map(normalizeStoredItem);
-      
-      await Promise.all([
-        AsyncStorage.setItem('cache:saved_items', JSON.stringify(normalizedItems)),
-        AsyncStorage.setItem('cache:user_settings', JSON.stringify(nextSettings))
-      ]);
-      
-      settingsRef.current = nextSettings;
-      setSettings(nextSettings);
-      commitItems(normalizedItems);
+
+      // DATA-LOSS GUARD: Same protection as hydrate —
+      // don't overwrite a larger cache with suspicious server results.
+      const cachedCount = itemsRef.current.length;
+      if (isSuspiciousDataLoss(cachedCount, normalizedItems.length)) {
+        await logDataLossWarning(cachedCount, normalizedItems.length, 'syncNow');
+        // Re-upload cached items to the server
+        try {
+          await upsertItemsToSupabase(
+            itemsRef.current.map(item => ({ ...item, sync_status: 'synced' as const }))
+          );
+        } catch {
+          // Re-upload failed, keep cache
+        }
+        // Still accept settings from server (settings are not at risk of mass-loss)
+        settingsRef.current = nextSettings;
+        setSettings(nextSettings);
+        await AsyncStorage.setItem('cache:user_settings', JSON.stringify(nextSettings));
+        pushError('Server had fewer items than expected — your saves were preserved and re-synced.');
+      } else {
+        await Promise.all([
+          AsyncStorage.setItem('cache:saved_items', JSON.stringify(normalizedItems)),
+          AsyncStorage.setItem('cache:user_settings', JSON.stringify(nextSettings))
+        ]);
+
+        settingsRef.current = nextSettings;
+        setSettings(nextSettings);
+        commitItems(normalizedItems);
+      }
     } catch (err: any) {
       pushError("Couldn't refresh — check your connection.");
     } finally {
       setIsSyncing(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commitItems, isAuthenticated]);
 
   function pushError(message: string) {
@@ -742,4 +897,49 @@ async function hydrateDemoStorage(): Promise<[SavedItem[], UserSettings]> {
 async function hydrateFromSupabase(): Promise<[SavedItem[], UserSettings]> {
   const [remoteItems, remoteSettings] = await Promise.all([loadItemsFromSupabase(), loadSettingsFromSupabase()]);
   return [remoteItems.map(normalizeStoredItem), { ...defaultSettings, ...(remoteSettings ?? {}) }];
+}
+
+/**
+ * Detects a suspicious data-loss pattern: server returned dramatically fewer
+ * items than we have cached locally. This guards against scenarios where
+ * items were accidentally deleted from the server and a subsequent sync
+ * would silently overwrite the local cache, making the loss permanent.
+ *
+ * Triggers when:
+ * - We have at least 3 cached items (avoid false positives on near-empty accounts)
+ * - Server returned less than half of what we have cached
+ */
+function isSuspiciousDataLoss(cachedCount: number, serverCount: number): boolean {
+  if (cachedCount < 3) return false;
+  return serverCount < cachedCount * 0.5;
+}
+
+async function logDataLossWarning(cachedCount: number, serverCount: number, source: string): Promise<void> {
+  try {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      source,
+      cachedCount,
+      serverCount,
+      message: `Data loss guard triggered: server had ${serverCount} items but cache had ${cachedCount}. Cache preserved.`
+    };
+    await AsyncStorage.setItem('data_loss:last_warning', JSON.stringify(entry));
+  } catch {
+    // Logging is best-effort
+  }
+}
+
+async function logDemoMigration(totalDemoItems: number, migratedCount: number): Promise<void> {
+  try {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      totalDemoItems,
+      migratedCount,
+      skippedDuplicates: totalDemoItems - migratedCount,
+      message: `Demo→authenticated migration: ${migratedCount} items migrated, ${totalDemoItems - migratedCount} duplicates skipped.`
+    };
+    await AsyncStorage.setItem('migration:demo_to_auth:last', JSON.stringify(entry));
+  } catch {
+    // Logging is best-effort
+  }
 }
