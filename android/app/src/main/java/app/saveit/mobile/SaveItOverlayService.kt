@@ -233,8 +233,9 @@ class SaveItOverlayService : Service() {
     // For overlay windows (TYPE_APPLICATION_OVERLAY), relying on a fixed 150ms delay
     // is insufficient for slower devices or aggressive OEMs (MIUI, ColorOS).
     // We must wait for the view to physically attach and measure before requesting focus.
-    reasonInput.isFocusable = true
-    reasonInput.isFocusableInTouchMode = true
+    reasonInput.setFocusableInTouchMode(true)
+    reasonInput.setFocusable(true)
+
     
     container.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
       override fun onGlobalLayout() {
