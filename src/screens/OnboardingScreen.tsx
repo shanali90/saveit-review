@@ -7,6 +7,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radii } from '@/constants/theme';
 
+import { requestBatteryExemption } from '@/services/battery';
+
 type OnboardingScreenProps = {
   onComplete: (provider: 'google' | 'local') => void;
   onRequestNotifications: () => Promise<void>;
@@ -30,6 +32,12 @@ const SLIDES = [
     title: 'Stay on track.',
     body: 'We’ll send one daily reminder with your highest priority save so you actually watch it.',
     icon: 'message-circle' as const
+  },
+  {
+    type: 'battery' as const,
+    title: 'Never miss a reminder.',
+    body: 'To make sure your reminders always arrive — even if you don\'t open SaveIt for weeks — allow it to run in the background.',
+    icon: 'battery' as const
   },
   {
     type: 'share' as const,
@@ -59,6 +67,17 @@ export function OnboardingScreen({ onComplete, onRequestNotifications }: Onboard
         void onRequestNotifications().catch(() => undefined);
       } catch {
         // Notification setup should never block onboarding.
+      } finally {
+        advance();
+      }
+      return;
+    }
+    
+    if (slide.type === 'battery') {
+      try {
+        void requestBatteryExemption();
+      } catch {
+        // Settings launch should never block onboarding
       } finally {
         advance();
       }
@@ -101,6 +120,18 @@ export function OnboardingScreen({ onComplete, onRequestNotifications }: Onboard
                     <Feather name="bell" size={32} color={colors.primary} />
                   </View>
                   <Text style={styles.permitLabel}>Allow Notifications</Text>
+                  <View style={styles.permitDots}>
+                    <View style={styles.dot} />
+                    <View style={styles.dotActive} />
+                  </View>
+                </View>
+              )}
+              {slide.type === 'battery' && (
+                <View style={styles.permitBox}>
+                  <View style={styles.permitIcon}>
+                    <Feather name="battery" size={32} color={colors.primary} />
+                  </View>
+                  <Text style={styles.permitLabel}>Allow Background</Text>
                   <View style={styles.permitDots}>
                     <View style={styles.dot} />
                     <View style={styles.dotActive} />

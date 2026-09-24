@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerAndroid, DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useMemo, useState } from 'react';
-import { Alert, Platform as RNPlatform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Linking, Platform as RNPlatform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SegmentedControl } from '@/components/SegmentedControl';
@@ -9,6 +9,7 @@ import { colors, platformColors, radii } from '@/constants/theme';
 import { parseReminderTime } from '@/services/time';
 import { platformDisplayName } from '@/services/url';
 import { getInstalledVersionName } from '@/services/updateChecker';
+import { getOemGuidance, requestBatteryExemption } from '@/services/battery';
 import { MaxItemsWarning, NotificationStyle, Platform as SavePlatform, ReminderFrequency, UserSettings } from '@/types';
 
 type SettingsMode = 'demo' | 'authenticated';
@@ -145,6 +146,27 @@ export function SettingsScreen({
               value={settings.notifications_enabled}
             />
           </View>
+          {RNPlatform.OS === 'android' && (
+            <>
+              <View style={[styles.row, { borderTopWidth: 1, borderTopColor: colors.border, marginTop: 8, paddingTop: 16 }]}>
+                <View style={styles.rowCopy}>
+                  <Text style={styles.rowTitle}>Background Reminders</Text>
+                  <Text style={styles.rowHint}>Prevent reminders from stopping after weeks of inactivity.</Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={requestBatteryExemption}
+                  style={({ pressed }) => [styles.actionButton, pressed && styles.actionButtonPressed]}
+                >
+                  <Text style={styles.actionButtonText}>Allow</Text>
+                </Pressable>
+              </View>
+              {getOemGuidance() ? (
+                <Text style={styles.oemGuidance}>{getOemGuidance()}</Text>
+              ) : null}
+            </>
+          )}
+          </View>
         </View>
 
         <View style={styles.section}>
@@ -219,6 +241,24 @@ export function SettingsScreen({
               )}
             </View>
           )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Support</Text>
+          <Pressable 
+            style={[styles.archiveButton, { borderColor: colors.border, backgroundColor: colors.surfaceMuted }]}
+            onPress={() => {
+              const version = getInstalledVersionName();
+              const os = RNPlatform.OS;
+              const subject = `SaveIt Feedback (v${version} ${os})`;
+              void Linking.openURL(`mailto:support@saveit.app?subject=${encodeURIComponent(subject)}`);
+            }}
+          >
+            <Feather name="mail" size={18} color={colors.text} />
+            <Text style={[styles.archiveText, { color: colors.text }]}>
+              Report a problem
+            </Text>
+          </Pressable>
         </View>
 
         <View style={styles.section}>
@@ -455,6 +495,27 @@ const styles = StyleSheet.create({
     color: colors.surface,
     fontSize: 15,
     fontWeight: '900'
+  },
+  actionButton: {
+    backgroundColor: colors.primarySoft,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radii.pill
+  },
+  actionButtonPressed: {
+    backgroundColor: '#DAD6FF'
+  },
+  actionButtonText: {
+    color: colors.primary,
+    fontWeight: '800',
+    fontSize: 13
+  },
+  oemGuidance: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 8,
+    fontStyle: 'italic'
   },
   deleteAccountButton: {
     alignItems: 'center',

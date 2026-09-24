@@ -229,18 +229,21 @@ class SaveItOverlayService : Service() {
     mainHandler.postDelayed(autoDismissRunnable, AUTO_DISMISS_MS)
     loadThumbnailAsync(url, thumbnail)
 
-    // PRIORITY 2 FIX — KEYBOARD AUTO-FOCUS
-    // For overlay windows (TYPE_APPLICATION_OVERLAY), Android does NOT
-    // auto-show the keyboard when an EditText gains focus. We must:
-    // 1. Wait for the overlay window to fully attach (postDelayed 150ms)
-    // 2. Explicitly request focus on the EditText
-    // 3. Explicitly show the soft keyboard via InputMethodManager with
-    //    SHOW_FORCED (SHOW_IMPLICIT is unreliable for overlay windows)
-    reasonInput.postDelayed({
-      reasonInput.requestFocus()
-      val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-      imm?.showSoftInput(reasonInput, InputMethodManager.SHOW_FORCED)
-    }, 150)
+    // PRIORITY 1 FIX — KEYBOARD AUTO-FOCUS (ROBUST)
+    // For overlay windows (TYPE_APPLICATION_OVERLAY), relying on a fixed 150ms delay
+    // is insufficient for slower devices or aggressive OEMs (MIUI, ColorOS).
+    // We must wait for the view to physically attach and measure before requesting focus.
+    reasonInput.isFocusable = true
+    reasonInput.isFocusableInTouchMode = true
+    
+    container.viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+      override fun onGlobalLayout() {
+        container.viewTreeObserver.removeOnGlobalLayoutListener(this)
+        reasonInput.requestFocus()
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.showSoftInput(reasonInput, InputMethodManager.SHOW_FORCED)
+      }
+    })
   }
 
   private fun chipRow(): View {

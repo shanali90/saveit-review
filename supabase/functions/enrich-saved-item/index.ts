@@ -130,7 +130,7 @@ function buildPrompt(url: string, rawTitle: string, rawDescription: string): str
 Given this URL, raw title, and raw description/caption, return a JSON object with these exact fields:
 - cleanTitle: string (human-readable title, sentence case, max 60 chars)
 - category: one of [Cooking, Fitness, Tech, Finance, Travel, Design, Lifestyle, Education, Entertainment, Shopping, Other]
-- summary: string (exactly 2 sentences, plain English, what this content is likely about; use the full caption before hashtags when available)
+- summary: string (3-4 lines maximum. Write in plain, everyday language. No jargon, no deep technical breakdowns. Give a simple, human-readable summary of what this content is actually about at a glance, so the user instantly remembers why they saved it.)
 - urgencyScore: integer 1-5 (1 = timeless content, 5 = time-sensitive content like news)
 - creatorHandle: string or null (the creator username/handle if present, formatted like @username)
 
@@ -151,7 +151,7 @@ function validate(value: unknown, rawTitle: string, rawDescription: string): Enr
   return {
     cleanTitle: trimTitle(typeof record.cleanTitle === 'string' ? record.cleanTitle : rawTitle),
     category,
-    summary: typeof record.summary === 'string' ? forceTwoSentences(record.summary) : '',
+    summary: typeof record.summary === 'string' ? formatSummary(record.summary) : '',
     urgencyScore: Number.isInteger(urgency) ? Math.min(5, Math.max(1, urgency)) : 3,
     creatorHandle:
       typeof record.creatorHandle === 'string' && record.creatorHandle.trim()
@@ -188,11 +188,8 @@ function trimTitle(value: string): string {
   return clean.length > 60 ? `${clean.slice(0, 57).trim()}...` : clean;
 }
 
-function forceTwoSentences(value: string): string {
-  const clean = value.replace(/\s+/g, ' ').trim();
-  const sentences = clean.match(/[^.!?]+[.!?]+/g);
-  if (!sentences || sentences.length < 2) return clean;
-  return sentences.slice(0, 2).join(' ').trim();
+function formatSummary(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
 }
 
 function json(body: unknown, status: number): Response {
