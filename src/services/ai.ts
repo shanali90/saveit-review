@@ -33,7 +33,7 @@ export async function enrichSavedMetadata(
 
 export function heuristicEnrichment(url: string, rawTitle: string, rawDescription = ''): EnrichmentResult {
   const caption = withoutHashtags(rawDescription);
-  const titleSource = caption.length > 14 ? caption : rawTitle || getHostLabel(url);
+  const titleSource = rawTitle || getHostLabel(url);
   const title = cleanTitle(titleSource);
   const haystack = `${url} ${rawTitle} ${rawDescription} ${title}`.toLowerCase();
   const creatorHandle = extractCreatorHandle(rawTitle, rawDescription);
