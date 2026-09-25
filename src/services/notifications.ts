@@ -17,7 +17,7 @@ const QUICK_REMINDER_ID_PREFIX = 'saveit-quick-reminder-';
 const QUICK_REMINDER_CHANNEL_ID = 'quick-save-reminders';
 const QUICK_REMINDER_CATEGORY_ID = 'quick-reminder-actions';
 const QUICK_REMINDER_TRACKING_PREFIX = 'quick_reminder:scheduled:';
-const QUICK_REMINDER_DELAY_SECONDS = 15 * 60; // 15 minutes
+const QUICK_REMINDER_DELAY_SECONDS = 20 * 60; // 20 minutes
 
 /**
  * Tracks the last-processed notification response to prevent re-firing.
@@ -64,7 +64,7 @@ export async function configureNotificationActions(): Promise<void> {
       // another app (e.g. YouTube, Instagram) is actively in the foreground.
       await Notifications.setNotificationChannelAsync(QUICK_REMINDER_CHANNEL_ID, {
         name: 'Quick save reminders',
-        description: 'Gentle reminder ~15 min after you save something',
+        description: 'Gentle reminder ~20 min after you save something',
         importance: Notifications.AndroidImportance.DEFAULT,
         sound: 'default',
         enableVibrate: true,
@@ -222,7 +222,7 @@ export async function scheduleItemReminder(item: SavedItem, reminderAt: Date): P
   await ensureNotificationAccess();
 
   const expectedIdentifier = itemReminderIdentifier(item.id);
-  const itemTrigger = { date: reminderAt.getTime() };
+  const itemTrigger = { date: reminderAt };
   const headline = item.save_reason?.trim() || item.clean_title;
   const platformLabel = platformDisplayName(item.platform);
   const ageText = reminderAgeText(item);
@@ -352,7 +352,7 @@ function dailyReminderTrigger(nextDate: Date, intervalDays: number): Notificatio
   }
 
   return {
-    date: nextDate.getTime()
+    date: nextDate
   } as any;
 }
 
@@ -495,7 +495,7 @@ export async function scheduleQuickReminder(item: SavedItem): Promise<void> {
       identifier,
       content: {
         title: `📌 Don't forget: ${headline}`,
-        body: `You saved this ${platformLabel} link ~15 min ago. Tap to watch now!`,
+        body: `You saved this ${platformLabel} link ~20 min ago. Tap to watch now!`,
         sound: true,
         // DEFAULT priority = standard notification, NOT heads-up.
         // This ensures it appears in the status bar / notification drawer

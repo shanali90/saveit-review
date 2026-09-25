@@ -528,7 +528,7 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
 
         enrichItem(item.id, item.url, item.raw_title, draft.preview).catch(() => undefined);
 
-        // Schedule a one-time quick reminder (~15 min) for this newly saved item.
+        // Schedule a one-time quick reminder (~20 min) for this newly saved item.
         // Fire-and-forget: never blocks the save flow.
         scheduleQuickReminder(item).catch(() => undefined);
 

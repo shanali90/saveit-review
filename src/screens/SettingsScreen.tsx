@@ -25,6 +25,7 @@ type SettingsScreenProps = {
   onRequestNotifications: () => void;
   onSignInGoogle?: () => void;
   onShowTutorial: () => void;
+  onToast?: (msg: string) => void;
 };
 
 const FREQUENCY_OPTIONS = [
@@ -50,7 +51,8 @@ export function SettingsScreen({
   onSignOut,
   onRequestNotifications,
   onSignInGoogle,
-  onShowTutorial
+  onShowTutorial,
+  onToast
 }: SettingsScreenProps) {
   const [timePickerVisible, setTimePickerVisible] = useState(false);
   const reminderDate = useMemo(() => dateFromReminderTime(settings.reminder_time), [settings.reminder_time]);
@@ -95,7 +97,7 @@ export function SettingsScreen({
 
   return (
     <SafeAreaView edges={['top']} style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="on-drag" showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.content} keyboardDismissMode="on-drag" keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Settings</Text>
 
         <View style={styles.section}>
@@ -259,7 +261,8 @@ export function SettingsScreen({
               const version = getInstalledVersionName();
               const os = RNPlatform.OS;
               const subject = `SaveIt Feedback (v${version} ${os})`;
-              void Linking.openURL(`mailto:support@saveit.app?subject=${encodeURIComponent(subject)}`);
+              void Linking.openURL(`mailto:shanalikiru123@gmail.com?subject=${encodeURIComponent(subject)}`);
+              if (onToast) onToast('Opening your email app to send the report...');
             }}
           >
             <Feather name="mail" size={18} color={colors.text} />

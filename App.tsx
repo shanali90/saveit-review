@@ -83,6 +83,7 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [celebratingId, setCelebratingId] = useState<string | null>(null);
   const [updateRelease, setUpdateRelease] = useState<AppRelease | null>(null);
+  const [tutorialReplay, setTutorialReplay] = useState(false);
 
   // Refs for notification response handler — avoids putting items/snoozeItem/deleteItem
   // in the useEffect dependency array, which was causing the action→re-render→re-mount→
@@ -99,7 +100,14 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
   const lastShareRef = useRef<string | null>(null);
   const nativeSplashHiddenRef = useRef(false);
   const { hasShareIntent, shareIntent, resetShareIntent, error: shareIntentError } = shareIntentState;
+  const [minSplashDone, setMinSplashDone] = useState(false);
   const initialUrl = Linking.useURL();
+
+  // Enforce a 2-second minimum splash screen for brand visibility
+  useEffect(() => {
+    const timer = setTimeout(() => setMinSplashDone(true), 2000);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Keep refs current on every render
   useEffect(() => { notifItemsRef.current = items; }, [items]);
@@ -500,7 +508,7 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
     setJsSurfaceReady(true);
   }, []);
 
-  if (onboarded === null || !authReady || !isReady) {
+  if (onboarded === null || !authReady || !isReady || !minSplashDone) {
     return <LoadingScreen onReady={handleJsSurfaceReady} />;
   }
 
@@ -508,7 +516,18 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
     return (
       <View style={styles.shell} onLayout={handleJsSurfaceReady}>
         <StatusBar style="dark" />
-        <OnboardingScreen onComplete={completeOnboarding} onRequestNotifications={handleRequestNotifications} />
+        <OnboardingScreen 
+          onComplete={(provider) => {
+            if (tutorialReplay) {
+              setTutorialReplay(false);
+              setOnboarded(true);
+            } else {
+              completeOnboarding(provider);
+            }
+          }} 
+          onRequestNotifications={handleRequestNotifications} 
+          isReplay={tutorialReplay}
+        />
       </View>
     );
   }
@@ -556,7 +575,11 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
             onUpdateSettings={updateSettings}
             settings={settings}
             onSignInGoogle={() => completeOnboarding('google')}
-            onShowTutorial={() => setOnboarded(false)}
+            onShowTutorial={() => {
+              setTutorialReplay(true);
+              setOnboarded(false);
+            }}
+            onToast={setToast}
           />
         )}
       </View>

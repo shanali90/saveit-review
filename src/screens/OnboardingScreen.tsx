@@ -12,6 +12,7 @@ import { requestBatteryExemption } from '@/services/battery';
 type OnboardingScreenProps = {
   onComplete: (provider: 'google' | 'local') => void;
   onRequestNotifications: () => Promise<void>;
+  isReplay?: boolean;
 };
 
 const SLIDES = [
@@ -47,16 +48,15 @@ const SLIDES = [
   }
 ];
 
-export function OnboardingScreen({ onComplete, onRequestNotifications }: OnboardingScreenProps) {
+export function OnboardingScreen({ onComplete, onRequestNotifications, isReplay }: OnboardingScreenProps) {
   const [index, setIndex] = useState(0);
-  const [authVisible, setAuthVisible] = useState(false);
   const slide = SLIDES[index];
   const isLast = index === SLIDES.length - 1;
 
   function handleNext() {
     const advance = () => {
       if (isLast) {
-        setAuthVisible(true);
+        if (isReplay) onComplete('local');
       } else {
         setIndex((current) => current + 1);
       }
@@ -95,7 +95,7 @@ export function OnboardingScreen({ onComplete, onRequestNotifications }: Onboard
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         {!isLast && (
-          <Pressable style={styles.skipButton} onPress={() => setAuthVisible(true)}>
+          <Pressable style={styles.skipButton} onPress={() => isReplay ? onComplete('local') : setIndex(SLIDES.length - 1)}>
             <Text style={styles.skipText}>Skip</Text>
           </Pressable>
         )}
@@ -167,12 +167,6 @@ export function OnboardingScreen({ onComplete, onRequestNotifications }: Onboard
         <View style={styles.copy}>
           <Text style={styles.title}>{slide.title}</Text>
           <Text style={styles.body}>{slide.body}</Text>
-          {slide.type === 'share' && (
-            <Pressable style={styles.testButton} onPress={handleTestShare}>
-              <Feather name="external-link" size={16} color={colors.primary} />
-              <Text style={styles.testButtonText}>Test it now with YouTube</Text>
-            </Pressable>
-          )}
         </View>
 
         <View style={styles.dots}>
@@ -181,8 +175,12 @@ export function OnboardingScreen({ onComplete, onRequestNotifications }: Onboard
           ))}
         </View>
 
-        {authVisible ? (
+        {isLast && !isReplay ? (
           <View style={styles.authStack}>
+            <Pressable style={[styles.authButton, { backgroundColor: '#FF0000', borderColor: '#FF0000' }]} onPress={handleTestShare}>
+              <Feather name="youtube" size={18} color={colors.surface} />
+              <Text style={[styles.googleText, { color: colors.surface }]}>Test with YouTube</Text>
+            </Pressable>
             <Pressable style={[styles.authButton, styles.googleButton]} onPress={() => onComplete('google')}>
               <Feather name="chrome" size={18} color={colors.primary} />
               <Text style={styles.googleText}>Continue with Google</Text>

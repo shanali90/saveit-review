@@ -64,7 +64,7 @@ export function QuickSaveModal({
 
   // PRIORITY 2: Auto-focus the appropriate input after modal slide animation.
   // On Android, focusing too early (before animation completes) silently fails,
-  // so we delay by 400ms which is safely after the default Modal slide-in duration.
+  // so we delay by 200ms which is snappier than 400ms but still safe.
   useEffect(() => {
     if (!visible) return;
     const timer = setTimeout(() => {
@@ -75,7 +75,7 @@ export function QuickSaveModal({
         // No URL yet — focus the URL input so user can paste
         urlInputRef.current?.focus();
       }
-    }, 400);
+    }, 200);
     return () => clearTimeout(timer);
   }, [visible, initialUrl]);
 
@@ -160,7 +160,7 @@ export function QuickSaveModal({
       return;
     }
 
-    onSaved('Saved! Quick reminder in 15 min');
+    onSaved('Saved! Quick reminder in 20 min');
     onClose();
     if (returnToSource && Platform.OS !== 'web') {
       setTimeout(() => BackHandler.exitApp(), 120);
