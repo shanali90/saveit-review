@@ -166,7 +166,6 @@ export function SettingsScreen({
               ) : null}
             </>
           )}
-          </View>
         </View>
 
         <View style={styles.section}>
