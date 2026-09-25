@@ -56,6 +56,12 @@ module.exports = function withSaveItOverlay(config) {
     const application = manifest.application?.[0];
     if (!application) return modConfig;
 
+    // Disable Android Auto Backup — prevents stale AsyncStorage (onboarding
+    // flags, demo items, permission-request flags) from being silently
+    // restored on reinstall, which causes 'fresh' installs to behave like
+    // returning-user installs.
+    application.$['android:allowBackup'] = 'false';
+
     application.service = application.service ?? [];
     const services = application.service;
     const existing = services.find((service) => service.$?.['android:name'] === '.SaveItOverlayService');

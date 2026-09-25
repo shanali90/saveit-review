@@ -93,6 +93,13 @@ export function OnboardingScreen({ onComplete, onRequestNotifications }: Onboard
 
   return (
     <SafeAreaView style={styles.safe}>
+      <View style={styles.header}>
+        {!isLast && (
+          <Pressable style={styles.skipButton} onPress={() => setAuthVisible(true)}>
+            <Text style={styles.skipText}>Skip</Text>
+          </Pressable>
+        )}
+      </View>
       <View style={styles.container}>
         <View style={styles.visual}>
           <LinearGradient colors={['#EFEDFF', '#FFFFFF']} style={styles.visualBg}>
@@ -204,7 +211,23 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'space-between',
-    padding: 24
+    padding: 24,
+    paddingTop: 0
+  },
+  header: {
+    height: 48,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  skipButton: {
+    padding: 8,
+  },
+  skipText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    fontWeight: '700',
   },
   visual: {
     flex: 1,

@@ -24,6 +24,7 @@ type SettingsScreenProps = {
   onSignOut: () => void;
   onRequestNotifications: () => void;
   onSignInGoogle?: () => void;
+  onShowTutorial: () => void;
 };
 
 const FREQUENCY_OPTIONS = [
@@ -48,7 +49,8 @@ export function SettingsScreen({
   onClearAllData,
   onSignOut,
   onRequestNotifications,
-  onSignInGoogle
+  onSignInGoogle,
+  onShowTutorial
 }: SettingsScreenProps) {
   const [timePickerVisible, setTimePickerVisible] = useState(false);
   const reminderDate = useMemo(() => dateFromReminderTime(settings.reminder_time), [settings.reminder_time]);
@@ -244,6 +246,13 @@ export function SettingsScreen({
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Support</Text>
+          <Pressable 
+            style={[styles.archiveButton, { borderColor: colors.border, backgroundColor: colors.surfaceMuted, marginBottom: 12 }]}
+            onPress={onShowTutorial}
+          >
+            <Feather name="help-circle" size={18} color={colors.primary} />
+            <Text style={[styles.archiveText, { color: colors.primary }]}>Show tutorial again</Text>
+          </Pressable>
           <Pressable 
             style={[styles.archiveButton, { borderColor: colors.border, backgroundColor: colors.surfaceMuted }]}
             onPress={() => {

@@ -29,13 +29,21 @@ class SaveItShareActivity : Activity() {
     val url = Regex("""https?://[^\s<>"']+""").find(sharedText)?.value ?: sharedText
     if (!url.startsWith("http", ignoreCase = true)) return
 
-    val serviceIntent = Intent(this, SaveItOverlayService::class.java).apply {
-      putExtra(SaveItOverlayService.EXTRA_URL, url)
-    }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      startForegroundService(serviceIntent)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !android.provider.Settings.canDrawOverlays(this)) {
+      val uri = android.net.Uri.parse("saveit://share?url=" + android.net.Uri.encode(url))
+      val launchIntent = Intent(Intent.ACTION_VIEW, uri).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+      }
+      startActivity(launchIntent)
     } else {
-      startService(serviceIntent)
+      val serviceIntent = Intent(this, SaveItOverlayService::class.java).apply {
+        putExtra(SaveItOverlayService.EXTRA_URL, url)
+      }
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        startForegroundService(serviceIntent)
+      } else {
+        startService(serviceIntent)
+      }
     }
   }
 }

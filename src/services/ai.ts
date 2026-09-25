@@ -122,17 +122,15 @@ function normalizeHandle(value: string): string | null {
 }
 
 function buildSummary(source: string, category: Category): string {
-  const subject = source.length > 150 ? `${source.slice(0, 147).trim()}...` : source;
-  const first = `This saved item appears to be about ${subject.toLowerCase()}.`;
-  const second =
-    category === 'Cooking'
-      ? 'It likely includes practical ideas or steps you can come back to when you are ready to try it.'
-      : category === 'Shopping'
-        ? 'It may be worth revisiting soon while the product, price, or recommendation is still relevant.'
-        : category === 'Education' || category === 'Tech'
-          ? 'It likely contains useful information or a tutorial that can be reviewed when you have focus.'
-          : 'It is saved for later so you can decide whether it still deserves your attention.';
-  return `${first} ${second}`;
+  // If the source text is long enough, use it directly as a summary
+  const cleaned = source.replace(/\s+/g, ' ').trim();
+  if (cleaned.length > 30) {
+    return cleaned.length > 200 ? `${cleaned.slice(0, 197).trim()}...` : cleaned;
+  }
+  
+  // For short/empty titles, return an honest empty string
+  // rather than generating a meaningless filler sentence
+  return '';
 }
 
 function matchAny(value: string, terms: string[]): boolean {

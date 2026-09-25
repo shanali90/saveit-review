@@ -67,16 +67,6 @@ class SaveItOverlayService : Service() {
       return START_NOT_STICKY
     }
 
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-      val uri = android.net.Uri.parse("saveit://share?url=" + android.net.Uri.encode(url))
-      val launchIntent = Intent(Intent.ACTION_VIEW, uri).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-      }
-      startActivity(launchIntent)
-      stopSelf()
-      return START_NOT_STICKY
-    }
-
     showOverlay(url)
     return START_NOT_STICKY
   }

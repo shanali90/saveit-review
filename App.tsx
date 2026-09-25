@@ -344,24 +344,34 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
   }, [hasShareIntent, resetShareIntent, shareIntent]);
 
   useEffect(() => {
-    if (!initialUrl) return;
-    try {
-      const parsed = Linking.parse(initialUrl);
-      // expo-linking treats saveit://share?url=... as hostname='share', path=null
-      // Check both hostname and path for robustness
-      const isShareLink = parsed.hostname === 'share' || parsed.path === 'share';
-      if (isShareLink && parsed.queryParams?.url) {
-        const sharedUrl = parsed.queryParams.url as string;
-        if (sharedUrl && sharedUrl !== lastShareRef.current) {
-          lastShareRef.current = sharedUrl;
-          setIsShareMode(true);
-          setIncomingUrl(sharedUrl);
-          setQuickSaveVisible(true);
+    function handleDeepLink(urlStr: string | null) {
+      if (!urlStr) return;
+      try {
+        const parsed = Linking.parse(urlStr);
+        const isShareLink = parsed.hostname === 'share' || parsed.path === 'share';
+        if (isShareLink && parsed.queryParams?.url) {
+          const sharedUrl = parsed.queryParams.url as string;
+          if (sharedUrl && sharedUrl !== lastShareRef.current) {
+            lastShareRef.current = sharedUrl;
+            setIsShareMode(true);
+            setIncomingUrl(sharedUrl);
+            setQuickSaveVisible(true);
+          }
         }
+      } catch {
+        // Ignore invalid URLs
       }
-    } catch {
-      // Ignore invalid URLs
     }
+
+    // Handle cold start
+    handleDeepLink(initialUrl);
+
+    // Handle incoming links while app is alive
+    const subscription = Linking.addEventListener('url', (event) => {
+      handleDeepLink(event.url);
+    });
+
+    return () => subscription.remove();
   }, [initialUrl]);
 
   useEffect(() => {
@@ -546,6 +556,7 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
             onUpdateSettings={updateSettings}
             settings={settings}
             onSignInGoogle={() => completeOnboarding('google')}
+            onShowTutorial={() => setOnboarded(false)}
           />
         )}
       </View>

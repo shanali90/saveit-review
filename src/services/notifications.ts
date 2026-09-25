@@ -42,7 +42,7 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
-    priority: Notifications.AndroidNotificationPriority.MAX
+    priority: Notifications.AndroidNotificationPriority.DEFAULT
   })
 });
 
@@ -51,7 +51,7 @@ export async function configureNotificationActions(): Promise<void> {
     if (Platform.OS === 'android') {
       await Notifications.setNotificationChannelAsync(CATEGORY_ID, {
         name: 'Saved item reminders',
-        importance: Notifications.AndroidImportance.MAX,
+        importance: Notifications.AndroidImportance.HIGH,
         sound: 'default',
         enableVibrate: true,
         vibrationPattern: [0, 180, 120, 180],
@@ -191,7 +191,7 @@ export async function scheduleReminderNotification(items: SavedItem[], settings:
         title,
         body,
         sound: true,
-        priority: Notifications.AndroidNotificationPriority.MAX,
+        priority: Notifications.AndroidNotificationPriority.HIGH,
         data: {
           itemId: String(candidate.id),
           url: String(candidate.url || ''),
@@ -235,7 +235,7 @@ export async function scheduleItemReminder(item: SavedItem, reminderAt: Date): P
         title: `📌 ${headline}`,
         body: `Ready to watch? ${headline} · ${platformLabel} — saved ${ageText}`,
         sound: true,
-        priority: Notifications.AndroidNotificationPriority.MAX,
+        priority: Notifications.AndroidNotificationPriority.HIGH,
         data: {
           itemId: String(item.id),
           url: String(item.url || ''),
