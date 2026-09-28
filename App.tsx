@@ -19,14 +19,18 @@ import { colors, radii, shadow } from '@/constants/theme';
 import { useSavedItems } from '@/hooks/useSavedItems';
 import {
   configureNotificationActions,
+  cleanupLegacyQuickReminders,
+  ensureDailyReminderScheduled,
   listenForNotificationResponses,
   requestNotificationAccess
 } from '@/services/notifications';
 import { readOnboarded, writeOnboarded } from '@/services/storage';
 import { getPersistedUserId, isSupabaseConfigured, runMigrations, supabase } from '@/services/supabase';
 import { extractFirstUrl } from '@/services/url';
+import { nativeGoogleSignIn, nativeGoogleSignOut } from '@/services/googleAuth';
 import { DiscoverScreen } from '@/screens/DiscoverScreen';
 import { HomeScreen } from '@/screens/HomeScreen';
+import { GuideScreen } from '@/screens/GuideScreen';
 import { OnboardingScreen } from '@/screens/OnboardingScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
 import { AppRelease, checkForUpdate } from '@/services/updateChecker';
@@ -84,6 +88,7 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
   const [celebratingId, setCelebratingId] = useState<string | null>(null);
   const [updateRelease, setUpdateRelease] = useState<AppRelease | null>(null);
   const [tutorialReplay, setTutorialReplay] = useState(false);
+  const [guideVisible, setGuideVisible] = useState(false);
 
   // Refs for notification response handler — avoids putting items/snoozeItem/deleteItem
   // in the useEffect dependency array, which was causing the action→re-render→re-mount→
@@ -110,6 +115,8 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
   }, []);
 
   // Keep refs current on every render
+  const settingsRef = useRef(settings);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { notifItemsRef.current = items; }, [items]);
   useEffect(() => { snoozeItemRef.current = snoozeItem; }, [snoozeItem]);
   useEffect(() => { deleteItemRef.current = deleteItem; }, [deleteItem]);
@@ -143,6 +150,7 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
       configureNotificationActions().catch(() => {
         // Reminder setup is retried later and should not force onboarding to re-run.
       });
+      cleanupLegacyQuickReminders().catch(() => undefined);
     }
     boot();
 
@@ -294,7 +302,10 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
 
     drainOverlayQueue();
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') drainOverlayQueue();
+      if (state === 'active') {
+        drainOverlayQueue();
+        ensureDailyReminderScheduled(notifItemsRef.current, settingsRef.current).catch(() => undefined);
+      }
     });
 
     return () => {
@@ -309,6 +320,12 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
       .then((granted) => setNotificationDenied(!granted))
       .catch(() => setNotificationDenied(true));
   }, [isReady, settings.notifications_enabled]);
+
+  // Self-healing: re-schedule daily reminder if Android killed it
+  useEffect(() => {
+    if (!isReady) return;
+    ensureDailyReminderScheduled(items, settings).catch(() => undefined);
+  }, [isReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // SECTION 1 FIX: Notification response handler uses refs instead of direct
   // state values. This removes items/snoozeItem/deleteItem from the deps,
@@ -359,6 +376,8 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
         const isShareLink = parsed.hostname === 'share' || parsed.path === 'share';
         if (isShareLink && parsed.queryParams?.url) {
           const sharedUrl = parsed.queryParams.url as string;
+          if (!sharedUrl.startsWith('http://') && !sharedUrl.startsWith('https://')) return;
+          if (sharedUrl.length > 2048) return;
           if (sharedUrl && sharedUrl !== lastShareRef.current) {
             lastShareRef.current = sharedUrl;
             setIsShareMode(true);
@@ -400,6 +419,31 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
       }
 
       try {
+        // Native Google Sign-In Flow
+        const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '141400262143-6c89l9oavd2q0e8v8o2781s6c1cmlc4k.apps.googleusercontent.com'; // Fallback to a placeholder if not in env
+        
+        const nativeResult = await nativeGoogleSignIn(webClientId);
+
+        if (nativeResult.status === 'success') {
+          const { data, error } = await supabase.auth.signInWithIdToken({
+            provider: 'google',
+            token: nativeResult.idToken,
+          });
+
+          if (error) throw error;
+          
+          setAuthUserId(data.session?.user.id ?? null);
+          setAuthReady(true);
+          await writeOnboarded(true);
+          setOnboarded(true);
+          return;
+        } else if (nativeResult.status === 'cancelled') {
+          return; // User aborted
+        }
+
+        // Fall back to web OAuth flow
+        console.log('[SaveIt] Falling back to web OAuth flow:', nativeResult.status === 'unavailable' ? nativeResult.reason : '');
+        
         const redirectTo = 'saveit://auth/callback';
         const { data, error } = await supabase.auth.signInWithOAuth({
           provider: 'google',
@@ -458,6 +502,7 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
   const handleSignOut = useCallback(async () => {
     try {
       if (supabase) await supabase.auth.signOut();
+      await nativeGoogleSignOut();
       setAuthUserId(null);
       setSelectedItemId(null);
       await writeOnboarded(true);
@@ -561,6 +606,7 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
             onDismissOverlayPrompt={handleDismissOverlayPrompt}
             onOpenOverlaySettings={handleOpenOverlaySettings}
             unwatchedCount={unwatchedCount}
+            onShowGuide={() => setGuideVisible(true)}
           />
         )}
         {activeTab === 'discover' && <DiscoverScreen />}
@@ -579,6 +625,7 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
               setTutorialReplay(true);
               setOnboarded(false);
             }}
+            onShowGuide={() => setGuideVisible(true)}
             onToast={setToast}
           />
         )}
@@ -626,6 +673,11 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
           release={updateRelease}
           onClose={() => setUpdateRelease(null)}
         />
+      )}
+      {guideVisible && (
+        <View style={StyleSheet.absoluteFill}>
+          <GuideScreen onClose={() => setGuideVisible(false)} />
+        </View>
       )}
     </View>
   );

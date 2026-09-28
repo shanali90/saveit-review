@@ -28,6 +28,7 @@ class SaveItShareActivity : Activity() {
       ?: return
     val url = Regex("""https?://[^\s<>"']+""").find(sharedText)?.value ?: sharedText
     if (!url.startsWith("http", ignoreCase = true)) return
+    if (url.length > 2048) return
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !android.provider.Settings.canDrawOverlays(this)) {
       val uri = android.net.Uri.parse("saveit://share?url=" + android.net.Uri.encode(url))

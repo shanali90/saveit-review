@@ -7,10 +7,8 @@ import { createId } from '@/services/id';
 import {
   cancelAllItemReminders,
   cancelItemReminder,
-  cancelQuickReminder,
   dismissItemNotification,
   scheduleItemReminder,
-  scheduleQuickReminder,
   scheduleReminderNotification
 } from '@/services/notifications';
 import {
@@ -528,10 +526,6 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
 
         enrichItem(item.id, item.url, item.raw_title, draft.preview).catch(() => undefined);
 
-        // Schedule a one-time quick reminder (~20 min) for this newly saved item.
-        // Fire-and-forget: never blocks the save flow.
-        scheduleQuickReminder(item).catch(() => undefined);
-
         return { status: 'saved', item };
       } catch (err: any) {
         return { status: 'error', message: "Couldn't save — check your connection." };
@@ -561,7 +555,6 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
         // any already-displayed notification for this item from the notification tray.
         // This covers all 3 conditions: no future reminders, cleared from tray, OS-level cancel.
         await cancelItemReminder(itemId);
-        await cancelQuickReminder(itemId);
         await dismissItemNotification(itemId);
       } catch {
         pushError("Couldn't save — check your connection.");
@@ -596,7 +589,6 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
           commitItems(nextItems);
           await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
           await cancelItemReminder(itemId);
-          await cancelQuickReminder(itemId);
         } catch {
           // Offline handling: queue delete
           const nextItems = itemsRef.current.filter((item) => item.id !== itemId);
@@ -609,13 +601,11 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
           await AsyncStorage.setItem('cache:pending_deletes', JSON.stringify(deletes));
           
           await cancelItemReminder(itemId);
-          await cancelQuickReminder(itemId);
         }
         return;
       }
       await persistDemoItems(itemsRef.current.filter((item) => item.id !== itemId));
       await cancelItemReminder(itemId);
-      await cancelQuickReminder(itemId);
     },
     [commitItems, isAuthenticated, persistDemoItems]
   );

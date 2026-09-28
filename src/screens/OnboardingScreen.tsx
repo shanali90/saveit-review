@@ -185,6 +185,7 @@ export function OnboardingScreen({ onComplete, onRequestNotifications, isReplay 
               <Feather name="chrome" size={18} color={colors.primary} />
               <Text style={styles.googleText}>Continue with Google</Text>
             </Pressable>
+            <Text style={styles.trustText}>We only use your email to sync saves securely.</Text>
             <Pressable style={styles.localButton} onPress={() => onComplete('local')}>
               <Text style={styles.localText}>Continue as Demo</Text>
             </Pressable>
@@ -426,6 +427,13 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 16,
     fontWeight: '900'
+  },
+  trustText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginBottom: 8,
+    marginTop: -4,
   },
   localButton: {
     alignItems: 'center',

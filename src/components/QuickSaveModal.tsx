@@ -160,7 +160,7 @@ export function QuickSaveModal({
       return;
     }
 
-    onSaved('Saved! Quick reminder in 20 min');
+    onSaved('Saved!');
     onClose();
     if (returnToSource && Platform.OS !== 'web') {
       setTimeout(() => BackHandler.exitApp(), 120);

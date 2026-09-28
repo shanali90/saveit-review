@@ -48,6 +48,7 @@ type HomeScreenProps = {
   onDismissNotificationBanner: () => void;
   onDismissOverlayPrompt: () => void;
   onOpenOverlaySettings: () => void;
+  onShowGuide: () => void;
   onRefresh: () => Promise<void>;
 };
 
@@ -78,6 +79,7 @@ export function HomeScreen({
   onDismissNotificationBanner,
   onDismissOverlayPrompt,
   onOpenOverlaySettings,
+  onShowGuide,
   onRefresh
 }: HomeScreenProps) {
   const [status, setStatus] = useState<LibraryStatus>('all');
@@ -215,6 +217,7 @@ export function HomeScreen({
       <View style={styles.topBar}>
         <Text style={styles.appName}>SaveIt</Text>
         <View style={styles.topActions}>
+          <IconButton name="help-circle" onPress={onShowGuide} accessibilityLabel="How to use SaveIt" />
           <IconButton
             accessibilityLabel="Open notifications"
             badgeCount={unwatchedCount}

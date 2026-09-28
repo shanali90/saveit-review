@@ -12,12 +12,8 @@ const REMINDER_ID_KEY = 'saveit-daily-reminder';
 const ITEM_REMINDER_ID_PREFIX = 'saveit-item-reminder-';
 const CATEGORY_ID = 'saved-item-reminders-v2';
 
-// ── Quick Reminder (one-time ~15-minute nudge after save) ──────────
-const QUICK_REMINDER_ID_PREFIX = 'saveit-quick-reminder-';
-const QUICK_REMINDER_CHANNEL_ID = 'quick-save-reminders';
-const QUICK_REMINDER_CATEGORY_ID = 'quick-reminder-actions';
-const QUICK_REMINDER_TRACKING_PREFIX = 'quick_reminder:scheduled:';
-const QUICK_REMINDER_DELAY_SECONDS = 20 * 60; // 20 minutes
+// ── Notifications ──────────
+
 
 /**
  * Tracks the last-processed notification response to prevent re-firing.
@@ -58,19 +54,6 @@ export async function configureNotificationActions(): Promise<void> {
         showBadge: true,
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC
       });
-
-      // Quick-reminder channel: DEFAULT importance = no heads-up interrupt.
-      // Shows in the status bar and notification drawer only, even while
-      // another app (e.g. YouTube, Instagram) is actively in the foreground.
-      await Notifications.setNotificationChannelAsync(QUICK_REMINDER_CHANNEL_ID, {
-        name: 'Quick save reminders',
-        description: 'Gentle reminder ~20 min after you save something',
-        importance: Notifications.AndroidImportance.DEFAULT,
-        sound: 'default',
-        enableVibrate: true,
-        showBadge: false,
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC
-      });
     }
 
     await Notifications.setNotificationCategoryAsync(CATEGORY_ID, [
@@ -88,20 +71,6 @@ export async function configureNotificationActions(): Promise<void> {
         identifier: 'SNOOZE_1_DAY',
         buttonTitle: 'Snooze',
         options: { opensAppToForeground: true }
-      }
-    ]);
-
-    // Quick-reminder category: Watch now + Later (dismiss, no re-nag).
-    await Notifications.setNotificationCategoryAsync(QUICK_REMINDER_CATEGORY_ID, [
-      {
-        identifier: 'WATCH_NOW',
-        buttonTitle: 'Watch now',
-        options: { opensAppToForeground: true }
-      },
-      {
-        identifier: 'QUICK_LATER',
-        buttonTitle: 'Later',
-        options: { opensAppToForeground: false }
       }
     ]);
   } catch {
@@ -210,6 +179,32 @@ export async function scheduleReminderNotification(items: SavedItem[], settings:
   }
 
   return identifier;
+}
+
+/**
+ * Self-healing check: verify the daily reminder is still scheduled.
+ * Android OEMs (Vivo, Xiaomi, Oppo) may silently cancel alarms when
+ * the app is swiped from recents or its cache is cleared. This function
+ * is called on every app open and foreground to re-create it if missing.
+ */
+export async function ensureDailyReminderScheduled(
+  items: SavedItem[],
+  settings: UserSettings
+): Promise<void> {
+  try {
+    if (!settings.notifications_enabled) return;
+    const unwatchedCount = items.filter((item) => !item.is_done).length;
+    if (unwatchedCount === 0) return;
+
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const hasDailyReminder = scheduled.some((n) => n.identifier === REMINDER_ID_KEY);
+    if (!hasDailyReminder) {
+      console.log('[SaveIt] Daily reminder was missing — re-scheduling');
+      await scheduleReminderNotification(items, settings);
+    }
+  } catch {
+    // Self-healing is best-effort; never block the app.
+  }
 }
 
 export async function scheduleItemReminder(item: SavedItem, reminderAt: Date): Promise<string> {
@@ -421,8 +416,6 @@ export function listenForNotificationResponses(handlers: {
       switch (response.actionIdentifier) {
         case 'WATCH_NOW':
           if (url) await Linking.openURL(url).catch(() => undefined);
-          // Clean up quick-reminder tracking if this was a quick reminder
-          cleanupQuickReminderTracking(itemId).catch(() => undefined);
           break;
         case 'MARK_DONE':
           await handlers.markDone(itemId);
@@ -430,15 +423,9 @@ export function listenForNotificationResponses(handlers: {
         case 'SNOOZE_1_DAY':
           await handlers.snooze(itemId);
           break;
-        case 'QUICK_LATER':
-          // "Later" on quick reminder — just dismiss (already handled above).
-          // Does NOT affect the item's daily-reminder eligibility.
-          cleanupQuickReminderTracking(itemId).catch(() => undefined);
-          break;
         default:
           // Default tap (no specific action button) — open the item
           handlers.focusItem(itemId);
-          cleanupQuickReminderTracking(itemId).catch(() => undefined);
       }
     } catch {
       // Notification responses should never bring the app down.
@@ -457,96 +444,31 @@ export function listenForNotificationResponses(handlers: {
   return Notifications.addNotificationResponseReceivedListener(handleResponse);
 }
 
-// ── Quick Reminder: schedule / cancel / cleanup ─────────────────────
-
 /**
- * Schedule a one-time quick-reminder notification for a newly saved item.
- * Fires ~15 minutes after save as a standard-priority notification
- * (status bar + drawer only, never heads-up / full-screen).
- *
- * Idempotent: if already scheduled for this item, the old one is replaced.
- * Uses a DISTINCT tracking key (quick_reminder:scheduled:<id>) that does
- * NOT interfere with the daily-reminder dedup key or the "still unwatched"
- * banner's once-per-day key.
+ * One-time cleanup: cancel any previously-scheduled quick-reminder
+ * notifications left over from earlier builds that had the feature.
+ * Called once on first launch of the build that removed quick reminders.
  */
-export async function scheduleQuickReminder(item: SavedItem): Promise<void> {
+export async function cleanupLegacyQuickReminders(): Promise<void> {
+  const LEGACY_CLEANUP_KEY = 'saveit:quick_reminders_cleaned';
   try {
-    // Don't schedule if already tracked (prevents re-scheduling on re-hydration)
-    const trackingKey = `${QUICK_REMINDER_TRACKING_PREFIX}${item.id}`;
-    const alreadyScheduled = await AsyncStorage.getItem(trackingKey);
-    if (alreadyScheduled) return;
+    const alreadyCleaned = await AsyncStorage.getItem(LEGACY_CLEANUP_KEY);
+    if (alreadyCleaned) return;
 
-    await configureNotificationActions();
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const quickOnes = scheduled.filter((n) => n.identifier.startsWith('saveit-quick-reminder-'));
+    await Promise.all(
+      quickOnes.map((n) => Notifications.cancelScheduledNotificationAsync(n.identifier))
+    );
 
-    // Best-effort permission check — skip silently if denied.
-    // Quick reminders are a nice-to-have; never block the save flow.
-    try {
-      const { granted } = await Notifications.getPermissionsAsync();
-      if (!granted) return;
-    } catch {
-      return;
+    // Also clean up any leftover tracking keys
+    const allKeys = await AsyncStorage.getAllKeys();
+    const trackingKeys = allKeys.filter((k) => k.startsWith('quick_reminder:scheduled:'));
+    if (trackingKeys.length > 0) {
+      await AsyncStorage.multiRemove(trackingKeys);
     }
 
-    const identifier = `${QUICK_REMINDER_ID_PREFIX}${item.id}`;
-    const headline = item.save_reason?.trim() || item.clean_title || item.raw_title;
-    const platformLabel = platformDisplayName(item.platform);
-
-    await Notifications.scheduleNotificationAsync({
-      identifier,
-      content: {
-        title: `📌 Don't forget: ${headline}`,
-        body: `You saved this ${platformLabel} link ~20 min ago. Tap to watch now!`,
-        sound: true,
-        // DEFAULT priority = standard notification, NOT heads-up.
-        // This ensures it appears in the status bar / notification drawer
-        // without interrupting whatever app is in the foreground.
-        priority: Notifications.AndroidNotificationPriority.DEFAULT,
-        data: {
-          itemId: String(item.id),
-          url: String(item.url || ''),
-          platform: item.platform,
-          isQuickReminder: true
-        },
-        categoryIdentifier: QUICK_REMINDER_CATEGORY_ID,
-        ...(Platform.OS === 'android' ? { channelId: QUICK_REMINDER_CHANNEL_ID } : {})
-      },
-      trigger: {
-        seconds: QUICK_REMINDER_DELAY_SECONDS,
-        channelId: QUICK_REMINDER_CHANNEL_ID
-      } as any
-    });
-
-    // Mark as scheduled so we never re-schedule for this item
-    await AsyncStorage.setItem(trackingKey, new Date().toISOString());
-  } catch {
-    // Quick reminders are best-effort — never block the save flow.
-  }
-}
-
-/**
- * Cancel a pending quick-reminder notification for a specific item.
- * Called when the item is marked done, deleted, or removed before the
- * 15-minute mark. Also cleans up the tracking key.
- */
-export async function cancelQuickReminder(itemId: string): Promise<void> {
-  try {
-    const identifier = `${QUICK_REMINDER_ID_PREFIX}${itemId}`;
-    await Notifications.cancelScheduledNotificationAsync(identifier).catch(() => undefined);
-    // Also dismiss from tray if it already fired
-    await Notifications.dismissNotificationAsync(identifier).catch(() => undefined);
-    await cleanupQuickReminderTracking(itemId);
-  } catch {
-    // Non-critical cleanup.
-  }
-}
-
-/**
- * Remove the AsyncStorage tracking key for a quick reminder.
- * Called after the notification fires and is interacted with, or when cancelled.
- */
-async function cleanupQuickReminderTracking(itemId: string): Promise<void> {
-  try {
-    await AsyncStorage.removeItem(`${QUICK_REMINDER_TRACKING_PREFIX}${itemId}`);
+    await AsyncStorage.setItem(LEGACY_CLEANUP_KEY, 'true');
   } catch {
     // Best-effort cleanup.
   }

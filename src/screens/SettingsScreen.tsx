@@ -9,7 +9,7 @@ import { colors, platformColors, radii } from '@/constants/theme';
 import { parseReminderTime } from '@/services/time';
 import { platformDisplayName } from '@/services/url';
 import { getInstalledVersionName } from '@/services/updateChecker';
-import { getOemGuidance, requestBatteryExemption } from '@/services/battery';
+import { requestBatteryExemption } from '@/services/battery';
 import { MaxItemsWarning, NotificationStyle, Platform as SavePlatform, ReminderFrequency, UserSettings } from '@/types';
 
 type SettingsMode = 'demo' | 'authenticated';
@@ -25,6 +25,7 @@ type SettingsScreenProps = {
   onRequestNotifications: () => void;
   onSignInGoogle?: () => void;
   onShowTutorial: () => void;
+  onShowGuide: () => void;
   onToast?: (msg: string) => void;
 };
 
@@ -52,6 +53,7 @@ export function SettingsScreen({
   onRequestNotifications,
   onSignInGoogle,
   onShowTutorial,
+  onShowGuide,
   onToast
 }: SettingsScreenProps) {
   const [timePickerVisible, setTimePickerVisible] = useState(false);
@@ -165,9 +167,6 @@ export function SettingsScreen({
                   <Text style={styles.actionButtonText}>Allow</Text>
                 </Pressable>
               </View>
-              {getOemGuidance() ? (
-                <Text style={styles.oemGuidance}>{getOemGuidance()}</Text>
-              ) : null}
             </>
           )}
         </View>
@@ -250,6 +249,13 @@ export function SettingsScreen({
           <Text style={styles.sectionTitle}>Support</Text>
           <Pressable 
             style={[styles.archiveButton, { borderColor: colors.border, backgroundColor: colors.surfaceMuted, marginBottom: 12 }]}
+            onPress={onShowGuide}
+          >
+            <Feather name="book-open" size={18} color={colors.primary} />
+            <Text style={[styles.archiveText, { color: colors.primary }]}>How to use SaveIt</Text>
+          </Pressable>
+          <Pressable 
+            style={[styles.archiveButton, { borderColor: colors.border, backgroundColor: colors.surfaceMuted, marginBottom: 12 }]}
             onPress={onShowTutorial}
           >
             <Feather name="help-circle" size={18} color={colors.primary} />
@@ -261,8 +267,15 @@ export function SettingsScreen({
               const version = getInstalledVersionName();
               const os = RNPlatform.OS;
               const subject = `SaveIt Feedback (v${version} ${os})`;
-              void Linking.openURL(`mailto:shanalikiru123@gmail.com?subject=${encodeURIComponent(subject)}`);
-              if (onToast) onToast('Opening your email app to send the report...');
+              const bodyLines = [
+                '',
+                '---',
+                `App: SaveIt v${version}`,
+                `OS: ${os}`,
+              ];
+              const body = bodyLines.join('\n');
+              void Linking.openURL(`mailto:shanalikeerio91@gmail.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`);
+              if (onToast) onToast('Opening email app\u2026 delivery depends on your mail client.');
             }}
           >
             <Feather name="mail" size={18} color={colors.text} />
@@ -520,13 +533,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: '800',
     fontSize: 13
-  },
-  oemGuidance: {
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 8,
-    fontStyle: 'italic'
   },
   deleteAccountButton: {
     alignItems: 'center',
