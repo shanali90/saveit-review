@@ -33,7 +33,9 @@ import { HomeScreen } from '@/screens/HomeScreen';
 import { GuideScreen } from '@/screens/GuideScreen';
 import { OnboardingScreen } from '@/screens/OnboardingScreen';
 import { SettingsScreen } from '@/screens/SettingsScreen';
-import { AppRelease, checkForUpdate } from '@/services/updateChecker';
+import { AppRelease, checkForUpdate, fetchCurrentRelease } from '@/services/updateChecker';
+import { WhatsNewModal } from '@/components/WhatsNewModal';
+import * as Updates from 'expo-updates';
 import { SavedItem } from '@/types';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -105,6 +107,7 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
   const lastShareRef = useRef<string | null>(null);
   const nativeSplashHiddenRef = useRef(false);
   const { hasShareIntent, shareIntent, resetShareIntent, error: shareIntentError } = shareIntentState;
+  const [whatsNewRelease, setWhatsNewRelease] = useState<AppRelease | null>(null);
   const [minSplashDone, setMinSplashDone] = useState(false);
   const initialUrl = Linking.useURL();
 
@@ -156,8 +159,28 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
 
     // Check for app updates on cold start
     checkForUpdate().then((release) => {
-      if (release && mounted) {
+      if (!mounted) return;
+      if (release) {
         setUpdateRelease(release);
+      } else {
+        // If no update is available to install, check if we just applied one
+        // and should show the "What's new" post-OTA popup.
+        const currentUpdateId = Updates.updateId;
+        if (currentUpdateId) {
+          AsyncStorage.getItem('whats_new:shown_update_id').then(async (shownId) => {
+            if (shownId !== currentUpdateId) {
+              const currentRelease = await fetchCurrentRelease();
+              if (mounted) {
+                if (currentRelease && currentRelease.release_notes) {
+                  setWhatsNewRelease(currentRelease);
+                } else {
+                  // If no release notes exist, silently mark as shown
+                  AsyncStorage.setItem('whats_new:shown_update_id', currentUpdateId).catch(() => {});
+                }
+              }
+            }
+          }).catch(() => {});
+        }
       }
     });
 
@@ -240,11 +263,16 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
         if (mounted) setAuthReady(true);
       });
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setAuthUserId(null);
+        return;
+      }
+      
       const userId = session?.user.id ?? null;
-      setAuthUserId(userId);
-      setAuthReady(true);
       if (userId) {
+        setAuthUserId(userId);
+        setAuthReady(true);
         writeOnboarded(true).catch(() => undefined);
         setOnboarded(true);
       }
@@ -672,6 +700,12 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
         <UpdateModal
           release={updateRelease}
           onClose={() => setUpdateRelease(null)}
+        />
+      )}
+      {whatsNewRelease && !updateRelease && (
+        <WhatsNewModal
+          release={whatsNewRelease}
+          onClose={() => setWhatsNewRelease(null)}
         />
       )}
       {guideVisible && (

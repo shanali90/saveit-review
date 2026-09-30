@@ -352,23 +352,31 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
       const normalizedNextItems = nextItems.map((item) => nextById.get(item.id) ?? item);
 
       if (isAuthenticated) {
-        try {
-          await upsertItemsToSupabase(normalizedChangedItems);
-          commitItems(normalizedNextItems);
-          await AsyncStorage.setItem('cache:saved_items', JSON.stringify(normalizedNextItems));
-        } catch (error) {
-          // Offline handling: Mark as queued
-          const queuedChangedItems = changedItems.map((item) => ({
-            ...item,
-            user_id: authUserId ?? item.user_id,
-            sync_status: 'queued' as const
-          }));
-          const queuedNextById = new Map(queuedChangedItems.map((item) => [item.id, item]));
-          const queuedNextItems = nextItems.map((item) => queuedNextById.get(item.id) ?? item);
-          
-          commitItems(queuedNextItems);
-          await AsyncStorage.setItem('cache:saved_items', JSON.stringify(queuedNextItems));
-        }
+        // Optimistic update: commit to local state and cache immediately.
+        // This ensures UI updates instantly and daily reminders are scheduled
+        // without waiting for network, fixing offline reminder failures.
+        commitItems(normalizedNextItems);
+        
+        // Use a background promise for the storage & network so we don't block the caller
+        (async () => {
+          try {
+            await AsyncStorage.setItem('cache:saved_items', JSON.stringify(normalizedNextItems));
+            await upsertItemsToSupabase(normalizedChangedItems);
+          } catch (error) {
+            // Offline handling: Mark as queued if network fails
+            const queuedChangedItems = changedItems.map((item) => ({
+              ...item,
+              user_id: authUserId ?? item.user_id,
+              sync_status: 'queued' as const
+            }));
+            const queuedNextById = new Map(queuedChangedItems.map((item) => [item.id, item]));
+            const queuedNextItems = nextItems.map((item) => queuedNextById.get(item.id) ?? item);
+            
+            commitItems(queuedNextItems);
+            await AsyncStorage.setItem('cache:saved_items', JSON.stringify(queuedNextItems));
+          }
+        })();
+        
         return;
       }
 
@@ -582,28 +590,26 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
 
   const deleteItem = useCallback(
     async (itemId: string) => {
-      if (isAuthenticated) {
+    if (isAuthenticated) {
+      const nextItems = itemsRef.current.filter((item) => item.id !== itemId);
+      commitItems(nextItems);
+      
+      (async () => {
         try {
-          await deleteItemFromSupabase(itemId);
-          const nextItems = itemsRef.current.filter((item) => item.id !== itemId);
-          commitItems(nextItems);
           await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
+          await deleteItemFromSupabase(itemId);
           await cancelItemReminder(itemId);
         } catch {
           // Offline handling: queue delete
-          const nextItems = itemsRef.current.filter((item) => item.id !== itemId);
-          commitItems(nextItems);
-          await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
-          
           const deletesStr = await AsyncStorage.getItem('cache:pending_deletes');
           const deletes = deletesStr ? JSON.parse(deletesStr) : [];
           deletes.push(itemId);
           await AsyncStorage.setItem('cache:pending_deletes', JSON.stringify(deletes));
-          
           await cancelItemReminder(itemId);
         }
-        return;
-      }
+      })();
+      return;
+    }
       await persistDemoItems(itemsRef.current.filter((item) => item.id !== itemId));
       await cancelItemReminder(itemId);
     },
@@ -687,25 +693,23 @@ export function useSavedItems({ authReady, authUserId }: UseSavedItemsOptions) {
   const clearDone = useCallback(async () => {
     const doneItemIds = itemsRef.current.filter((item) => item.is_done).map((item) => item.id);
     if (isAuthenticated) {
-      try {
-        await deleteDoneItemsFromSupabase();
-        const nextItems = itemsRef.current.filter((item) => !item.is_done);
-        commitItems(nextItems);
-        await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
-        await Promise.all(doneItemIds.map(cancelItemReminder));
-      } catch {
-        // Offline handling: queue deletes
-        const nextItems = itemsRef.current.filter((item) => !item.is_done);
-        commitItems(nextItems);
-        await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
-        
-        const deletesStr = await AsyncStorage.getItem('cache:pending_deletes');
-        const deletes = deletesStr ? JSON.parse(deletesStr) : [];
-        deletes.push(...doneItemIds);
-        await AsyncStorage.setItem('cache:pending_deletes', JSON.stringify(deletes));
-        
-        await Promise.all(doneItemIds.map(cancelItemReminder));
-      }
+      const nextItems = itemsRef.current.filter((item) => !item.is_done);
+      commitItems(nextItems);
+      
+      (async () => {
+        try {
+          await AsyncStorage.setItem('cache:saved_items', JSON.stringify(nextItems));
+          await deleteDoneItemsFromSupabase();
+          await Promise.all(doneItemIds.map(cancelItemReminder));
+        } catch {
+          // Offline handling: queue deletes
+          const deletesStr = await AsyncStorage.getItem('cache:pending_deletes');
+          const deletes = deletesStr ? JSON.parse(deletesStr) : [];
+          deletes.push(...doneItemIds);
+          await AsyncStorage.setItem('cache:pending_deletes', JSON.stringify(deletes));
+          await Promise.all(doneItemIds.map(cancelItemReminder));
+        }
+      })();
       return;
     }
     await persistDemoItems(itemsRef.current.filter((item) => !item.is_done));

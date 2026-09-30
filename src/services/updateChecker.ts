@@ -71,6 +71,31 @@ export async function checkForUpdate(): Promise<AppRelease | null> {
 }
 
 /**
+ * Fetch the release info for the currently installed Android native version,
+ * to display "What's new" release notes after an OTA update.
+ */
+export async function fetchCurrentRelease(): Promise<AppRelease | null> {
+  try {
+    if (!isSupabaseConfigured || !supabase) return null;
+
+    const installedVersionCode = getInstalledVersionCode();
+    if (installedVersionCode === null) return null;
+
+    const { data, error } = await supabase
+      .from('app_releases')
+      .select('latest_version_code, latest_version_name, download_url, release_notes, update_type')
+      .eq('platform', 'android')
+      .eq('latest_version_code', installedVersionCode)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return data as AppRelease;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Record that the update prompt was shown to the user.
  * Increments the daily count for the current date.
  */
