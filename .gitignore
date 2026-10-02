@@ -9,3 +9,11 @@ ios/Pods
 ios/build
 *.log
 .system_generated
+
+# Compiled binaries
+*.apk
+*.aab
+
+# Keystores
+*.keystore
+*.jks
