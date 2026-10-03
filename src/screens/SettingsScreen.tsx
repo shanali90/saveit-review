@@ -291,14 +291,10 @@ export function SettingsScreen({
           <Text style={styles.aboutText}>SaveIt v{getInstalledVersionName()} · Crafted by Shan Ali Keerio</Text>
         </View>
 
-        {/* OTA DEBUG BLOCK */}
-        <View style={{ marginBottom: 40, padding: 16, backgroundColor: '#ffebee', borderRadius: radii.md }}>
-          <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 8, color: '#b71c1c' }}>Step 1: OTA Diagnostic</Text>
-          <Text style={{ fontSize: 12, color: '#b71c1c', marginBottom: 4, fontFamily: 'monospace' }}>Update ID: {Updates.updateId || 'null (embedded/none)'}</Text>
-          <Text style={{ fontSize: 12, color: '#b71c1c', marginBottom: 4, fontFamily: 'monospace' }}>Runtime: {Updates.runtimeVersion || 'null'}</Text>
-          <Text style={{ fontSize: 12, color: '#b71c1c', marginBottom: 4, fontFamily: 'monospace' }}>Created: {Updates.createdAt?.toString() || 'null'}</Text>
-          <Text style={{ fontSize: 12, color: '#b71c1c', marginBottom: 4, fontFamily: 'monospace' }}>Channel: {Updates.channel || 'null'}</Text>
-        </View>
+        {/* OTA DEBUG — temporary, remove after confirming updates work */}
+        <Text style={{ fontSize: 11, color: '#999', textAlign: 'center', marginTop: 4, marginBottom: 32 }}>
+          {'Build: ' + (Updates.runtimeVersion ?? '?') + ' · Update: ' + (Updates.updateId ? Updates.updateId.slice(0, 8) : 'none') + ' · Published: ' + (Updates.createdAt ? Updates.createdAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'n/a') + (Updates.isEmbeddedLaunch ? ' (embedded, no OTA applied)' : '')}
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );
