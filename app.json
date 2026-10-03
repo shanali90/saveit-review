@@ -4,7 +4,7 @@
     "slug": "saveit",
     "scheme": "saveit",
     "version": "1.0.0",
-    "runtimeVersion": "1.0.1",
+    "runtimeVersion": "1.0.3",
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_ERROR_RECOVERY",
