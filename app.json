@@ -7,7 +7,7 @@
     "runtimeVersion": "1.0.3",
     "updates": {
       "enabled": true,
-      "checkAutomatically": "ON_ERROR_RECOVERY",
+      "checkAutomatically": "ON_LOAD",
       "url": "https://u.expo.dev/3825ebf8-4fba-4a28-b911-f8094b9a7105"
     },
     "orientation": "portrait",
