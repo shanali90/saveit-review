@@ -157,25 +157,32 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
     }
     boot();
 
-    // Check for app updates on cold start
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authReady) return;
+    let mounted = true;
+
+    // Check for app updates only after auth state is restored
+    // This ensures any RLS policies on app_releases don't fail for authenticated users.
     checkForUpdate().then((release) => {
       if (!mounted) return;
       if (release) {
         setUpdateRelease(release);
       } else {
-        // If no update is available to install, check if we just applied one
-        // and should show the "What's new" post-OTA popup.
         const currentUpdateId = Updates.updateId;
         if (currentUpdateId) {
-          AsyncStorage.getItem('whats_new:shown_update_id').then(async (shownId) => {
+          AsyncStorage.getItem('whats_new:shown_update_id_v3').then(async (shownId) => {
             if (shownId !== currentUpdateId) {
               const currentRelease = await fetchCurrentRelease();
               if (mounted) {
                 if (currentRelease && currentRelease.release_notes) {
                   setWhatsNewRelease(currentRelease);
                 } else {
-                  // If no release notes exist, silently mark as shown
-                  AsyncStorage.setItem('whats_new:shown_update_id', currentUpdateId).catch(() => {});
+                  AsyncStorage.setItem('whats_new:shown_update_id_v3', currentUpdateId).catch(() => {});
                 }
               }
             }
@@ -184,10 +191,8 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
       }
     });
 
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    return () => { mounted = false; };
+  }, [authReady]);
 
   useEffect(() => {
     if (!bootReady || !jsSurfaceReady || nativeSplashHiddenRef.current) return;

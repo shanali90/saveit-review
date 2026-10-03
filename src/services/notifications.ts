@@ -3,6 +3,15 @@ import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+// expo-notifications 0.28.19 (SDK 51): parseTrigger infers trigger type from shape
+// (exact key-count matching after stripping channelId). Do NOT add a `type` field to
+// user-facing triggers — the extra key breaks isDailyTriggerInput / isWeeklyTriggerInput.
+//
+// RACE FIX: scheduleReminderNotification is called from commitItems on every item
+// state change. Rapid-fire calls (e.g. save → enrich, or sync → action) race:
+// call B's cancelReminderNotifications() can cancel what call A just scheduled.
+// We serialize calls with a promise-chain lock so each completes before the next starts.
+
 import { getReminderCandidate, reminderIntervalDays } from '@/services/reminders';
 import { nextReminderDate, reminderAgeText } from '@/services/time';
 import { platformDisplayName } from '@/services/url';
@@ -119,7 +128,21 @@ export async function ensureNotificationAccess(): Promise<void> {
   }
 }
 
-export async function scheduleReminderNotification(items: SavedItem[], settings: UserSettings): Promise<string | null> {
+/**
+ * Serialization lock for scheduleReminderNotification.
+ * Each call chains onto the previous, so cancel-then-schedule in call A
+ * finishes before call B begins its own cancel-then-schedule.
+ */
+let scheduleLock: Promise<string | null> = Promise.resolve(null);
+
+export function scheduleReminderNotification(items: SavedItem[], settings: UserSettings): Promise<string | null> {
+  scheduleLock = scheduleLock
+    .catch(() => null)
+    .then(() => scheduleReminderNotificationImpl(items, settings));
+  return scheduleLock;
+}
+
+async function scheduleReminderNotificationImpl(items: SavedItem[], settings: UserSettings): Promise<string | null> {
   await cancelReminderNotifications();
   if (!settings.notifications_enabled) return null;
   await configureNotificationActions();
@@ -178,6 +201,7 @@ export async function scheduleReminderNotification(items: SavedItem[], settings:
     throw new Error(`Native scheduler returned unexpected daily reminder identifier "${identifier}".`);
   }
 
+  await logScheduledTrigger('daily-reminder', identifier);
   return identifier;
 }
 
@@ -202,7 +226,8 @@ export async function ensureDailyReminderScheduled(
       console.log('[SaveIt] Daily reminder was missing — re-scheduling');
       await scheduleReminderNotification(items, settings);
     }
-  } catch {
+  } catch (error) {
+    console.warn('[SaveIt] ensureDailyReminderScheduled failed:', error);
     // Self-healing is best-effort; never block the app.
   }
 }
@@ -217,7 +242,10 @@ export async function scheduleItemReminder(item: SavedItem, reminderAt: Date): P
   await ensureNotificationAccess();
 
   const expectedIdentifier = itemReminderIdentifier(item.id);
-  const itemTrigger = { date: reminderAt };
+  const itemTrigger: Notifications.NotificationTriggerInput = {
+    ...androidChannel(),
+    date: reminderAt.getTime()
+  };
   const headline = item.save_reason?.trim() || item.clean_title;
   const platformLabel = platformDisplayName(item.platform);
   const ageText = reminderAgeText(item);
@@ -259,6 +287,7 @@ export async function scheduleItemReminder(item: SavedItem, reminderAt: Date): P
     throw new Error(`Native scheduler returned unexpected item reminder identifier "${identifier}".`);
   }
 
+  await logScheduledTrigger('item-reminder', identifier);
   return identifier;
 }
 
@@ -328,27 +357,61 @@ function itemReminderIdentifier(itemId: string): string {
   return `${ITEM_REMINDER_ID_PREFIX}${itemId}`;
 }
 
+function androidChannel(): { channelId?: string } {
+  return Platform.OS === 'android' ? { channelId: CATEGORY_ID } : {};
+}
+
 function dailyReminderTrigger(nextDate: Date, intervalDays: number): Notifications.NotificationTriggerInput {
+  const channel = androidChannel();
+
   if (intervalDays === 1) {
-    return {
+    const trigger: Notifications.DailyTriggerInput = {
+      ...channel,
       hour: nextDate.getHours(),
       minute: nextDate.getMinutes(),
       repeats: true
-    } as any;
+    };
+    return trigger;
   }
-  
+
   if (intervalDays === 7) {
-    return {
+    const trigger: Notifications.WeeklyTriggerInput = {
+      ...channel,
       weekday: nextDate.getDay() + 1,
       hour: nextDate.getHours(),
       minute: nextDate.getMinutes(),
       repeats: true
-    } as any;
+    };
+    return trigger;
   }
 
-  return {
-    date: nextDate
-  } as any;
+  const trigger: Notifications.DateTriggerInput = {
+    ...channel,
+    date: nextDate.getTime()
+  };
+  return trigger;
+}
+
+async function logScheduledTrigger(label: string, identifier: string): Promise<void> {
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const match = scheduled.find((notification) => notification.identifier === identifier);
+    console.log(
+      `[SaveIt] ${label} native trigger`,
+      JSON.stringify(
+        {
+          identifier,
+          found: Boolean(match),
+          trigger: match?.trigger ?? null,
+          scheduledCount: scheduled.length
+        },
+        null,
+        2
+      )
+    );
+  } catch (error) {
+    console.log(`[SaveIt] ${label} failed to inspect scheduled notifications`, error);
+  }
 }
 
 function errorMessage(error: unknown): string {

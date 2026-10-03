@@ -59,7 +59,7 @@ export function WhatsNewModal({ release, onClose }: WhatsNewModalProps) {
   async function handleDismiss() {
     try {
       if (Updates.updateId) {
-        await AsyncStorage.setItem('whats_new:shown_update_id', Updates.updateId);
+        await AsyncStorage.setItem('whats_new:shown_update_id_v3', Updates.updateId);
       }
     } catch {
       // ignore

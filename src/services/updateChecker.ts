@@ -78,14 +78,12 @@ export async function fetchCurrentRelease(): Promise<AppRelease | null> {
   try {
     if (!isSupabaseConfigured || !supabase) return null;
 
-    const installedVersionCode = getInstalledVersionCode();
-    if (installedVersionCode === null) return null;
-
     const { data, error } = await supabase
       .from('app_releases')
       .select('latest_version_code, latest_version_name, download_url, release_notes, update_type')
       .eq('platform', 'android')
-      .eq('latest_version_code', installedVersionCode)
+      .order('latest_version_code', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (error || !data) return null;

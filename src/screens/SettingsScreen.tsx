@@ -8,6 +8,7 @@ import { SegmentedControl } from '@/components/SegmentedControl';
 import { colors, platformColors, radii } from '@/constants/theme';
 import { parseReminderTime } from '@/services/time';
 import { platformDisplayName } from '@/services/url';
+import * as Updates from 'expo-updates';
 import { getInstalledVersionName } from '@/services/updateChecker';
 import { requestBatteryExemption } from '@/services/battery';
 import { MaxItemsWarning, NotificationStyle, Platform as SavePlatform, ReminderFrequency, UserSettings } from '@/types';
@@ -288,6 +289,15 @@ export function SettingsScreen({
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>About</Text>
           <Text style={styles.aboutText}>SaveIt v{getInstalledVersionName()} · Crafted by Shan Ali Keerio</Text>
+        </View>
+
+        {/* OTA DEBUG BLOCK */}
+        <View style={{ marginBottom: 40, padding: 16, backgroundColor: '#ffebee', borderRadius: radii.md }}>
+          <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 8, color: '#b71c1c' }}>Step 1: OTA Diagnostic</Text>
+          <Text style={{ fontSize: 12, color: '#b71c1c', marginBottom: 4, fontFamily: 'monospace' }}>Update ID: {Updates.updateId || 'null (embedded/none)'}</Text>
+          <Text style={{ fontSize: 12, color: '#b71c1c', marginBottom: 4, fontFamily: 'monospace' }}>Runtime: {Updates.runtimeVersion || 'null'}</Text>
+          <Text style={{ fontSize: 12, color: '#b71c1c', marginBottom: 4, fontFamily: 'monospace' }}>Created: {Updates.createdAt?.toString() || 'null'}</Text>
+          <Text style={{ fontSize: 12, color: '#b71c1c', marginBottom: 4, fontFamily: 'monospace' }}>Channel: {Updates.channel || 'null'}</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
