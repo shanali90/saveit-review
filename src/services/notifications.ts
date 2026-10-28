@@ -1,5 +1,4 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Linking from 'expo-linking';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
@@ -14,7 +13,7 @@ import { Platform } from 'react-native';
 
 import { getReminderCandidate, reminderIntervalDays } from '@/services/reminders';
 import { nextReminderDate, reminderAgeText } from '@/services/time';
-import { platformDisplayName } from '@/services/url';
+import { openExternalUrl, platformDisplayName } from '@/services/url';
 import { SavedItem, UserSettings } from '@/types';
 
 const REMINDER_ID_KEY = 'saveit-daily-reminder';
@@ -528,7 +527,7 @@ export function listenForNotificationResponses(handlers: {
 
       switch (response.actionIdentifier) {
         case 'WATCH_NOW':
-          if (url) await Linking.openURL(url).catch(() => undefined);
+          if (url) await openExternalUrl(url);
           break;
         case 'MARK_DONE':
           await handlers.markDone(itemId);

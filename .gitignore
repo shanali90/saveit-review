@@ -8,7 +8,10 @@ android/build
 ios/Pods
 ios/build
 *.log
+eas-*.txt
+build_log.*
 .system_generated
+supabase/.temp
 
 # Compiled binaries
 *.apk

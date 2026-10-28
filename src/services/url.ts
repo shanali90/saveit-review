@@ -1,4 +1,5 @@
 import { MetadataPreview, Platform } from '@/types';
+import * as Linking from 'expo-linking';
 
 const TRACKING_PARAMS = [
   'utm_source',
@@ -56,6 +57,17 @@ export function getHostLabel(url: string): string {
     return new URL(url).hostname.replace(/^www\./, '');
   } catch {
     return 'Saved from web';
+  }
+}
+
+export async function openExternalUrl(url: string): Promise<boolean> {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    await Linking.openURL(parsed.toString());
+    return true;
+  } catch {
+    return false;
   }
 }
 

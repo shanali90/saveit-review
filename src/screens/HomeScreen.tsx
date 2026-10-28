@@ -280,7 +280,9 @@ export function HomeScreen({
         </View>
       )}
 
-      <Text style={styles.weeklyRecap}>You've completed {completedThisWeek} saves this week</Text>
+      <Text style={styles.weeklyRecap}>
+        You've completed {completedThisWeek} {completedThisWeek === 1 ? 'save' : 'saves'} this week
+      </Text>
 
       {showNotificationBanner && (
         <View style={styles.permissionBanner}>

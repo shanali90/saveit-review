@@ -1,12 +1,12 @@
 import { Feather } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
-import * as Linking from 'expo-linking';
 import { useEffect, useRef, useState } from 'react';
 import * as Updates from 'expo-updates';
 import { Animated, Easing, Modal, Pressable, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 
 import { colors, radii, shadow, spacing } from '@/constants/theme';
 import { AppRelease, dismissUpdatePrompt, recordUpdatePromptShown } from '@/services/updateChecker';
+import { openExternalUrl } from '@/services/url';
 
 type UpdateModalProps = {
   release: AppRelease;
@@ -111,7 +111,11 @@ export function UpdateModal({ release, onClose }: UpdateModalProps) {
     // to an external download — we can't track whether they complete it.
     await dismissUpdatePrompt(release.latest_version_code);
     try {
-      await Linking.openURL(release.download_url);
+      if (!release.download_url.startsWith('https://')) {
+        setUpdateError('This download link is not secure.');
+        return;
+      }
+      await openExternalUrl(release.download_url);
     } catch {
       // If the URL can't be opened, just close the modal
     }

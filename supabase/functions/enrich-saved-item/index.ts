@@ -19,6 +19,8 @@ type EnrichmentResponse = {
   creatorHandle: string | null;
 };
 
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
 const CATEGORIES: Category[] = [
   'Cooking',
   'Fitness',
@@ -45,16 +47,42 @@ Deno.serve(async (request) => {
   }
 
   try {
-    const { url, rawTitle, rawDescription } = await request.json();
+    const body = await request.json();
+    const url = typeof body.url === 'string' ? body.url : '';
+    const rawTitle = typeof body.rawTitle === 'string' ? body.rawTitle : '';
+    const rawDescription = typeof body.rawDescription === 'string' ? body.rawDescription : '';
     if (!url || !rawTitle) {
-      return json(fallback(String(rawTitle ?? ''), 3), 400);
+      return json(fallback(rawTitle, 3), 400);
+    }
+    if (url.length > 2048 || rawTitle.length > 500 || rawDescription.length > 2000) {
+      return json(fallback(rawTitle, 3), 200);
+    }
+
+    const supabase = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    );
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
+    const authorization = request.headers.get('Authorization') ?? '';
+    const token = authorization.replace(/^Bearer\s+/i, '').trim();
+    let caller = 'anon';
+    if (token && token !== anonKey) {
+      const { data } = await supabase.auth.getUser(token);
+      if (data.user?.id) caller = data.user.id;
+    }
+
+    const { data: allowed, error: usageError } = await supabase.rpc('bump_ai_usage', {
+      caller
+    });
+    if (usageError || allowed !== true) {
+      return json(fallback(rawTitle, 3), 200);
     }
 
     const provider = (Deno.env.get('AI_PROVIDER') ?? 'openai').toLowerCase();
     const result =
       provider === 'anthropic' && Deno.env.get('ANTHROPIC_API_KEY')
-        ? await enrichWithAnthropic(url, rawTitle, rawDescription ?? '')
-        : await enrichWithOpenAI(url, rawTitle, rawDescription ?? '');
+        ? await enrichWithAnthropic(url, rawTitle, rawDescription)
+        : await enrichWithOpenAI(url, rawTitle, rawDescription);
 
     return json(validate(result, rawTitle, rawDescription ?? ''), 200);
   } catch {

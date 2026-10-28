@@ -11,7 +11,7 @@ export function DiscoverScreen() {
         <Text style={styles.title}>Discover</Text>
         <View style={styles.panel}>
           <Feather name="compass" size={34} color={colors.primary} />
-          <Text style={styles.panelTitle}>Coming after the save loop is perfect.</Text>
+          <Text style={styles.panelTitle}>Coming soon</Text>
           <Text style={styles.panelText}>
             This tab is reserved for future recommendations without distracting from the core library.
           </Text>

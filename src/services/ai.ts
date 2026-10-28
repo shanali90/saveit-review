@@ -1,6 +1,7 @@
 import { CATEGORIES } from '@/constants/categories';
 import { EnrichmentResult, Category } from '@/types';
 import { extractCreatorHandle, getHostLabel } from '@/services/url';
+import { supabase } from '@/services/supabase';
 
 const enrichEndpoint = process.env.EXPO_PUBLIC_ENRICH_ENDPOINT;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
@@ -10,25 +11,38 @@ export async function enrichSavedMetadata(
   rawTitle: string,
   rawDescription = ''
 ): Promise<EnrichmentResult> {
+  const boundedUrl = url.slice(0, 2048);
+  const boundedTitle = rawTitle.slice(0, 500);
+  const boundedDescription = rawDescription.slice(0, 2000);
   if (enrichEndpoint && !enrichEndpoint.includes('your-project')) {
     try {
+      const session = supabase ? (await supabase.auth.getSession()).data.session : null;
+      const bearerToken = session?.access_token || supabaseAnonKey;
+      const requestHeaders: Record<string, string> = {
+        'Content-Type': 'application/json'
+      };
+      if (bearerToken) requestHeaders.Authorization = `Bearer ${bearerToken}`;
       const response = await fetch(enrichEndpoint, {
         method: 'POST',
-        headers: {
+        headers: requestHeaders, /*
           'Content-Type': 'application/json',
           ...(supabaseAnonKey ? { Authorization: `Bearer ${supabaseAnonKey}` } : {})
-        },
-        body: JSON.stringify({ url, rawTitle, rawDescription })
+        }, bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+        */ body: JSON.stringify({
+          url: boundedUrl,
+          rawTitle: boundedTitle,
+          rawDescription: boundedDescription
+        })
       });
       if (response.ok) {
-        return normalizeEnrichment(await response.json(), rawTitle, rawDescription);
+        return normalizeEnrichment(await response.json(), boundedTitle, boundedDescription);
       }
     } catch {
       // The local fallback below keeps saving non-blocking.
     }
   }
 
-  return heuristicEnrichment(url, rawTitle, rawDescription);
+  return heuristicEnrichment(boundedUrl, boundedTitle, boundedDescription);
 }
 
 export function heuristicEnrichment(url: string, rawTitle: string, rawDescription = ''): EnrichmentResult {

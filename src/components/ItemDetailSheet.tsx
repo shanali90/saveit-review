@@ -1,6 +1,5 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerAndroid, DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import * as Linking from 'expo-linking';
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -22,7 +21,7 @@ import { Thumbnail } from '@/components/Thumbnail';
 import { CATEGORIES } from '@/constants/categories';
 import { colors, radii } from '@/constants/theme';
 import { formatRelativeTime } from '@/services/time';
-import { platformDisplayName } from '@/services/url';
+import { openExternalUrl, platformDisplayName } from '@/services/url';
 import { Category, SavedItem } from '@/types';
 
 type ItemDetailSheetProps = {
@@ -185,7 +184,7 @@ export function ItemDetailSheet({
             </View>
 
             <Text style={styles.sectionLabel}>Source</Text>
-            <Pressable style={styles.source} onPress={() => Linking.openURL(currentItem.url).catch(() => undefined)}>
+            <Pressable style={styles.source} onPress={() => { void openExternalUrl(currentItem.url); }}>
               <Feather name="external-link" size={16} color={colors.primary} />
               <Text style={styles.sourceText} numberOfLines={1}>
                 {currentItem.url}
@@ -195,7 +194,7 @@ export function ItemDetailSheet({
             <View style={styles.actions}>
               <Pressable
                 style={[styles.actionButton, styles.openButton]}
-                onPress={() => Linking.openURL(currentItem.url).catch(() => undefined)}
+                onPress={() => { void openExternalUrl(currentItem.url); }}
               >
                 <Feather name="play-circle" size={18} color={colors.surface} />
                 <Text style={styles.openButtonText}>Open on {platformDisplayName(currentItem.platform)}</Text>

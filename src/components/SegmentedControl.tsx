@@ -48,9 +48,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: radii.pill,
     flex: 1,
-    minHeight: 36,
+    minHeight: 44,
     justifyContent: 'center',
-    paddingHorizontal: 10
+    paddingHorizontal: 4
   },
   active: {
     backgroundColor: colors.surface,
@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
   },
   label: {
     color: colors.textMuted,
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: '700'
   },
   activeLabel: {

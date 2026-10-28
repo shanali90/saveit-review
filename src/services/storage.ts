@@ -205,8 +205,7 @@ export async function clearSharedQueue(): Promise<void> {
 function getDefaultPreference(): DefaultPreferenceBridge | null {
   if (Platform.OS !== 'ios') return null;
   try {
-    const optionalRequire = eval('require') as (name: string) => unknown;
-    const mod = optionalRequire('react-native-default-preference') as {
+    const mod = require('react-native-default-preference') as {
       default?: DefaultPreferenceBridge;
     } & DefaultPreferenceBridge;
     return mod.default ?? mod;

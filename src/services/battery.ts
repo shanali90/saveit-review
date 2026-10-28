@@ -1,5 +1,4 @@
 import * as IntentLauncher from 'expo-intent-launcher';
-import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import { Alert, Linking, Platform } from 'react-native';
 
@@ -39,21 +38,4 @@ export async function requestBatteryExemption(): Promise<void> {
       }
     }
   }
-}
-
-export function getOemGuidance(): string | null {
-  if (Platform.OS !== 'android') return null;
-  const brand = (Device.brand || '').toLowerCase();
-  
-  if (brand.includes('xiaomi') || brand.includes('redmi') || brand.includes('poco')) {
-    return 'On Xiaomi devices, also enable Autostart for SaveIt in your phone\'s Security app for the most reliable reminders.';
-  }
-  if (brand.includes('oppo') || brand.includes('realme') || brand.includes('oneplus')) {
-    return 'On Oppo/OnePlus devices, also ensure "Allow Background Activity" is enabled in App Management for reliable reminders.';
-  }
-  if (brand.includes('vivo') || brand.includes('iqoo')) {
-    return 'On Vivo devices, also ensure SaveIt is allowed to run in the background in your battery settings.';
-  }
-  
-  return null;
 }

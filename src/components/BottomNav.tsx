@@ -45,16 +45,16 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     borderWidth: 1,
     flexDirection: 'row',
-    gap: 6,
+    gap: 2,
     marginHorizontal: 18,
     marginTop: 8,
-    padding: 6
+    padding: 4
   },
   item: {
     alignItems: 'center',
     borderRadius: radii.md,
     flex: 1,
-    gap: 3,
+    gap: 2,
     minHeight: 54,
     justifyContent: 'center'
   },
@@ -66,7 +66,7 @@ const styles = StyleSheet.create({
   },
   label: {
     color: colors.textMuted,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800'
   },
   activeLabel: {

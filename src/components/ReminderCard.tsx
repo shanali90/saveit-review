@@ -1,9 +1,9 @@
 import { Feather } from '@expo/vector-icons';
-import * as Linking from 'expo-linking';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radii, shadow } from '@/constants/theme';
 import { daysBetween } from '@/services/time';
+import { openExternalUrl } from '@/services/url';
 import { SavedItem } from '@/types';
 
 type ReminderCardProps = {
@@ -25,7 +25,7 @@ export function ReminderCard({ item, onDone, onWatchLater }: ReminderCardProps) 
           {item.clean_title}
         </Text>
         <View style={styles.actions}>
-          <Pressable style={[styles.button, styles.primary]} onPress={() => Linking.openURL(item.url)}>
+          <Pressable style={[styles.button, styles.primary]} onPress={() => { void openExternalUrl(item.url); }}>
             <Text style={styles.primaryText}>Watch now</Text>
           </Pressable>
           <Pressable style={[styles.button, styles.secondary, { flexDirection: 'row', gap: 6 }]} onPress={onWatchLater}>
