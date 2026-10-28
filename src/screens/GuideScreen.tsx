@@ -67,6 +67,7 @@ const SECTIONS = [
       'You choose the time and frequency in Settings.',
       'You can also set a custom reminder for any specific post.',
       'Tip: allow SaveIt to run in the background (Settings → Background Reminders) so reminders arrive even if you haven\'t opened the app in weeks.',
+      'If reminders ever stop, lock SaveIt in Recent apps and set its battery to Unrestricted.',
     ],
   },
 ];

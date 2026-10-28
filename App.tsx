@@ -98,6 +98,7 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
   const notifItemsRef = useRef<SavedItem[]>([]);
   const snoozeItemRef = useRef(snoozeItem);
   const deleteItemRef = useRef(deleteItem);
+  const updateItemRef = useRef(updateItem);
   const [notificationDenied, setNotificationDenied] = useState(false);
   const [showOverlayPrompt, setShowOverlayPrompt] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -123,6 +124,7 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
   useEffect(() => { notifItemsRef.current = items; }, [items]);
   useEffect(() => { snoozeItemRef.current = snoozeItem; }, [snoozeItem]);
   useEffect(() => { deleteItemRef.current = deleteItem; }, [deleteItem]);
+  useEffect(() => { updateItemRef.current = updateItem; }, [updateItem]);
 
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedItemId) ?? null,
@@ -337,7 +339,11 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         drainOverlayQueue();
-        ensureDailyReminderScheduled(notifItemsRef.current, settingsRef.current).catch(() => undefined);
+        ensureDailyReminderScheduled(
+          notifItemsRef.current,
+          settingsRef.current,
+          updateItemRef.current
+        ).catch(() => undefined);
       }
     });
 
@@ -357,7 +363,7 @@ function SaveItApp({ shareIntentState }: { shareIntentState: ShareIntentState })
   // Self-healing: re-schedule daily reminder if Android killed it
   useEffect(() => {
     if (!isReady) return;
-    ensureDailyReminderScheduled(items, settings).catch(() => undefined);
+    ensureDailyReminderScheduled(items, settings, updateItemRef.current).catch(() => undefined);
   }, [isReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // SECTION 1 FIX: Notification response handler uses refs instead of direct

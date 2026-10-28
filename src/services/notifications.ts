@@ -18,6 +18,7 @@ import { platformDisplayName } from '@/services/url';
 import { SavedItem, UserSettings } from '@/types';
 
 const REMINDER_ID_KEY = 'saveit-daily-reminder';
+const DAILY_REMINDER_ID_PREFIX = `${REMINDER_ID_KEY}-`;
 const ITEM_REMINDER_ID_PREFIX = 'saveit-item-reminder-';
 const CATEGORY_ID = 'saved-item-reminders-v2';
 
@@ -154,8 +155,7 @@ async function scheduleReminderNotificationImpl(items: SavedItem[], settings: Us
 
   const headline = candidate.save_reason?.trim() || candidate.clean_title;
   const platformLabel = platformDisplayName(candidate.platform);
-  const ageText = reminderAgeText(candidate);
-
+  const intervalDays = reminderIntervalDays(settings);
   // Section 5 fix: Summary mode uses aggregate count as title headline,
   // Individual mode spotlights one specific item — as expected.
   let title: string;
@@ -165,44 +165,61 @@ async function scheduleReminderNotificationImpl(items: SavedItem[], settings: Us
     title = unwatchedCount === 1
       ? '📺 1 save waiting'
       : `📺 ${unwatchedCount} saves waiting`;
-    body = `Next up: ${headline} · ${platformLabel} — saved ${ageText}`;
+    body = intervalDays === 1
+      ? `Next up: ${headline} · ${platformLabel}`
+      : `Next up: ${headline} · ${platformLabel} — saved ${reminderAgeText(candidate)}`;
   } else {
     title = `📌 ${headline}`;
-    body = `Ready to watch? ${headline} · ${platformLabel} — saved ${ageText}`;
+    body = intervalDays === 1
+      ? `Ready to watch? ${headline} · ${platformLabel}`
+      : `Ready to watch? ${headline} · ${platformLabel} — saved ${reminderAgeText(candidate)}`;
   }
 
-  const intervalDays = reminderIntervalDays(settings);
   const nextDate = nextReminderDate(settings.reminder_time, intervalDays);
-  const trigger = dailyReminderTrigger(nextDate, intervalDays);
+  const content = {
+    title,
+    body,
+    sound: true,
+    priority: Notifications.AndroidNotificationPriority.HIGH,
+    data: {
+      itemId: String(candidate.id),
+      url: String(candidate.url || ''),
+      platform: candidate.platform
+    },
+    categoryIdentifier: CATEGORY_ID
+  };
 
-  let identifier: string;
-  try {
-    identifier = await Notifications.scheduleNotificationAsync({
+  if (intervalDays !== 2) {
+    const identifier = await Notifications.scheduleNotificationAsync({
       identifier: REMINDER_ID_KEY,
-      content: {
-        title,
-        body,
-        sound: true,
-        priority: Notifications.AndroidNotificationPriority.HIGH,
-        data: {
-          itemId: String(candidate.id),
-          url: String(candidate.url || ''),
-          platform: candidate.platform
-        },
-        categoryIdentifier: CATEGORY_ID
-      },
-      trigger
+      content,
+      trigger: dailyReminderTrigger(nextDate, intervalDays)
     });
-  } catch (scheduleError: unknown) {
-    throw scheduleError;
+    if (identifier !== REMINDER_ID_KEY) {
+      throw new Error(`Native scheduler returned unexpected daily reminder identifier "${identifier}".`);
+    }
+    await logScheduledTrigger('daily-reminder', identifier);
+    return identifier;
   }
 
-  if (identifier !== REMINDER_ID_KEY) {
-    throw new Error(`Native scheduler returned unexpected daily reminder identifier "${identifier}".`);
+  let firstIdentifier: string | null = null;
+  for (let index = 0; index < 14; index += 1) {
+    const identifier = await Notifications.scheduleNotificationAsync({
+      identifier: `${DAILY_REMINDER_ID_PREFIX}${index}`,
+      content,
+      trigger: {
+        ...androidChannel(),
+        date: nextDate.getTime() + index * 2 * 24 * 60 * 60 * 1000
+      }
+    });
+    const expectedIdentifier = `${DAILY_REMINDER_ID_PREFIX}${index}`;
+    if (identifier !== expectedIdentifier) {
+      throw new Error(`Native scheduler returned unexpected every-2-days reminder identifier "${identifier}".`);
+    }
+    firstIdentifier ??= identifier;
   }
-
-  await logScheduledTrigger('daily-reminder', identifier);
-  return identifier;
+  if (firstIdentifier) await logScheduledTrigger('daily-reminder', firstIdentifier);
+  return firstIdentifier;
 }
 
 /**
@@ -213,19 +230,48 @@ async function scheduleReminderNotificationImpl(items: SavedItem[], settings: Us
  */
 export async function ensureDailyReminderScheduled(
   items: SavedItem[],
-  settings: UserSettings
+  settings: UserSettings,
+  updateItem?: (itemId: string, patch: Partial<SavedItem>) => Promise<void>
 ): Promise<void> {
   try {
     if (!settings.notifications_enabled) return;
     const unwatchedCount = items.filter((item) => !item.is_done).length;
     if (unwatchedCount === 0) return;
 
-    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-    const hasDailyReminder = scheduled.some((n) => n.identifier === REMINDER_ID_KEY);
-    if (!hasDailyReminder) {
-      console.log('[SaveIt] Daily reminder was missing — re-scheduling');
-      await scheduleReminderNotification(items, settings);
-    }
+    await scheduleReminderNotification(items, settings);
+
+    const now = Date.now();
+    await Promise.all(items.filter((item) => !item.is_done).map(async (item) => {
+      if (!item.custom_reminder_at) return;
+      const reminderAt = new Date(item.custom_reminder_at);
+      if (Number.isNaN(reminderAt.getTime())) return;
+
+      if (reminderAt.getTime() > now) {
+        await scheduleItemReminder(item, reminderAt);
+        return;
+      }
+
+      const lastRemindedAt = item.last_reminded_at ? new Date(item.last_reminded_at).getTime() : 0;
+      if (lastRemindedAt >= reminderAt.getTime()) return;
+
+      const headline = item.clean_title || item.raw_title;
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `You asked to be reminded about ${headline}`,
+          body: `You asked to be reminded about ${headline}`,
+          sound: true,
+          priority: Notifications.AndroidNotificationPriority.HIGH,
+          data: {
+            itemId: String(item.id),
+            url: String(item.url || ''),
+            platform: item.platform
+          },
+          categoryIdentifier: CATEGORY_ID
+        },
+        trigger: null
+      });
+      await updateItem?.(item.id, { last_reminded_at: new Date(now).toISOString() });
+    }));
   } catch (error) {
     console.warn('[SaveIt] ensureDailyReminderScheduled failed:', error);
     // Self-healing is best-effort; never block the app.
@@ -312,7 +358,7 @@ export async function cancelAllItemReminders(): Promise<void> {
         .filter(
           (notification) =>
             notification.identifier.startsWith(ITEM_REMINDER_ID_PREFIX) ||
-            (notification.identifier !== REMINDER_ID_KEY && Boolean(notification.content.data?.itemId))
+            (!isDailyReminderId(notification.identifier) && Boolean(notification.content.data?.itemId))
         )
         .map((notification) => Notifications.cancelScheduledNotificationAsync(notification.identifier))
     );
@@ -326,7 +372,7 @@ export async function cancelReminderNotifications(): Promise<void> {
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
     await Promise.all(
       scheduled
-        .filter((notification) => notification.identifier === REMINDER_ID_KEY)
+        .filter((notification) => isDailyReminderId(notification.identifier))
         .map((notification) => Notifications.cancelScheduledNotificationAsync(notification.identifier))
     );
   } catch {
@@ -355,6 +401,10 @@ export async function dismissItemNotification(itemId: string): Promise<void> {
 
 function itemReminderIdentifier(itemId: string): string {
   return `${ITEM_REMINDER_ID_PREFIX}${itemId}`;
+}
+
+function isDailyReminderId(identifier: string): boolean {
+  return identifier === REMINDER_ID_KEY || identifier.startsWith(DAILY_REMINDER_ID_PREFIX);
 }
 
 function androidChannel(): { channelId?: string } {
@@ -430,7 +480,7 @@ function isItemReminderNotification(
 ): boolean {
   return (
     notification.identifier === itemReminderIdentifier(itemId) ||
-    (notification.identifier !== REMINDER_ID_KEY && String(notification.content.data?.itemId ?? '') === itemId)
+    (!isDailyReminderId(notification.identifier) && String(notification.content.data?.itemId ?? '') === itemId)
   );
 }
 
